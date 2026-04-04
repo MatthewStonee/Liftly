@@ -114,7 +114,7 @@ App is a 2-tab SwiftUI/SwiftData app (Programs + Progress). All files building c
 
 #### Must-Have Before App Store Submission
 - [ ] **Active workout session flow** — "Start Workout" UI that walks through a program's exercises set by set; `WorkoutSession` model exists but has no UI
-- [ ] **Settings screen** — units toggle (lbs/kg), support contact; settings icon in nav bar currently does nothing
+- [ ] **Settings screen** — units toggle (lbs/kg), support contact; placeholder `SettingsView` exists at `Features/Settings/SettingsView.swift`, accessible via `gearshape` button top-left of Programs tab
 - [ ] **Privacy Policy** — must be hosted at a URL and linked in App Store Connect
 - [ ] **App Store assets** — screenshots (iPhone 17 Pro Max + iPad), app description, keywords, support URL
 

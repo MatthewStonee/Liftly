@@ -6,6 +6,7 @@ struct ProgramsView: View {
     @Query(sort: \Program.createdAt, order: .reverse) private var programs: [Program]
     @State private var viewModel = ProgramsViewModel()
     @State private var showingCreateProgram = false
+    @State private var showingSettings = false
 
     private var activeProgram: Program? { programs.first { $0.isActive } }
     private var otherPrograms: [Program] { programs.filter { !$0.isActive } }
@@ -24,6 +25,14 @@ struct ProgramsView: View {
             .navigationTitle("Programs")
             .titleDisplayMode(.large)
             .toolbar {
+                ToolbarItem(placement: .navigationBarLeading) {
+                    Button {
+                        showingSettings = true
+                    } label: {
+                        Image(systemName: "gearshape")
+                            .fontWeight(.semibold)
+                    }
+                }
                 ToolbarItem(placement: .primaryAction) {
                     Button {
                         showingCreateProgram = true
@@ -36,6 +45,9 @@ struct ProgramsView: View {
         }
         .sheet(isPresented: $showingCreateProgram) {
             CreateProgramView()
+        }
+        .sheet(isPresented: $showingSettings) {
+            SettingsView()
         }
     }
 
