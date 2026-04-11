@@ -23,20 +23,10 @@ struct WorkoutTemplateDetailView: View {
                     }
                 }
 
-                Button {
+                PrimaryButton("Add Exercise", icon: "plus.circle") {
                     showingExercisePicker = true
-                } label: {
-                    Label("Add Exercise", systemImage: "plus")
-                        .font(.subheadline.bold())
-                        .foregroundStyle(.blue)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 14)
-                        .background(.blue.opacity(0.1), in: RoundedRectangle(cornerRadius: 14))
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 14)
-                                .strokeBorder(.blue.opacity(0.3), lineWidth: 0.5)
-                        )
                 }
+                .padding(.top, 4)
             }
             .padding(.horizontal, 16)
             .padding(.top, 8)
@@ -149,30 +139,37 @@ struct PlannedExerciseRow: View {
     @State private var showingEdit = false
 
     var body: some View {
-        VStack(spacing: 12) {
-            HStack {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(alignment: .top) {
                 VStack(alignment: .leading, spacing: 4) {
+                    if let muscle = planned.exercise?.muscleGroup {
+                        Text(muscle.rawValue.uppercased())
+                            .font(.caption2.bold())
+                            .tracking(1.5)
+                            .foregroundStyle(muscle.color.opacity(0.8))
+                    }
                     Text(planned.exercise?.name ?? "Exercise")
-                        .font(.headline)
-                    HStack(spacing: 6) {
-                        if let muscle = planned.exercise?.muscleGroup {
-                            Text(muscle.rawValue)
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        }
-                        if let equip = planned.exercise?.equipment {
-                            Text("·")
-                                .foregroundStyle(.tertiary)
-                            Text(equip.rawValue)
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        }
+                        .font(.title3.bold())
+                        .foregroundStyle(.white)
+                        .tracking(-0.3)
+                    if let equip = planned.exercise?.equipment {
+                        Text(equip.rawValue)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
                     }
                 }
                 Spacer()
                 Menu {
-                    Button("Edit") { showingEdit = true }
-                    Button("Delete", role: .destructive) { onDelete() }
+                    Button {
+                        showingEdit = true
+                    } label: {
+                        Label("Edit", systemImage: "pencil")
+                    }
+                    Button(role: .destructive) {
+                        onDelete()
+                    } label: {
+                        Label("Delete", systemImage: "trash")
+                    }
                 } label: {
                     Image(systemName: "ellipsis.circle")
                         .font(.title3)

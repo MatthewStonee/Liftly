@@ -5,6 +5,7 @@ struct ProgramDetailView: View {
     @Environment(\.modelContext) private var context
     @Environment(\.dismiss) private var dismiss
     @Bindable var program: Program
+    @Query private var allPrograms: [Program]
     @State private var showingAddWorkout = false
     @State private var editingWorkoutName: WorkoutTemplate?
     @State private var newWorkoutName = ""
@@ -22,8 +23,8 @@ struct ProgramDetailView: View {
 
     var body: some View {
         ScrollView {
-            VStack(spacing: 16) {
-                programHeader
+            VStack(spacing: 20) {
+                programHero
 
                 if program.sortedWorkouts.isEmpty {
                     emptyWorkoutsState
@@ -36,31 +37,30 @@ struct ProgramDetailView: View {
                     }
                 }
 
-                Button {
+                PrimaryButton("Add Workout Day", icon: "plus") {
                     showingAddWorkout = true
-                } label: {
-                    Label("Add Workout Day", systemImage: "plus")
-                        .font(.subheadline.bold())
-                        .foregroundStyle(.blue)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 14)
-                        .background(.blue.opacity(0.1), in: RoundedRectangle(cornerRadius: 14))
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 14)
-                                .strokeBorder(.blue.opacity(0.3), lineWidth: 0.5)
-                        )
                 }
+                .padding(.top, 4)
             }
             .padding(.horizontal, 16)
             .padding(.top, 8)
             .padding(.bottom, 32)
         }
         .navigationTitle(program.name)
-        .titleDisplayMode(.large)
+        .titleDisplayMode(.inline)
         .background { gradient }
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
                 Menu {
+                    if !program.isActive {
+                        Button {
+                            for p in allPrograms { p.isActive = false }
+                            program.isActive = true
+                            try? context.save()
+                        } label: {
+                            Label("Set as Active", systemImage: "checkmark.circle")
+                        }
+                    }
                     Button {
                         draftName = program.name
                         editingTitle = true
@@ -104,20 +104,47 @@ struct ProgramDetailView: View {
         }
     }
 
-    private var programHeader: some View {
-        GlassCard {
+    private var programHero: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("PROGRAM")
+                .font(.caption.bold())
+                .tracking(2)
+                .foregroundStyle(.blue)
+
+            Text(program.name)
+                .font(.system(size: 34, weight: .black))
+                .foregroundStyle(.white)
+                .tracking(-0.5)
+
             HStack(spacing: 12) {
-                StatBadge(value: "\(program.workouts.count)", label: "Days")
-                StatBadge(
+                heroStatCard(
+                    value: "\(program.workouts.count)",
+                    label: program.workouts.count == 1 ? "Day" : "Days"
+                )
+                heroStatCard(
                     value: "\(program.workouts.reduce(0) { $0 + $1.plannedExercises.count })",
                     label: "Exercises"
                 )
-                StatBadge(
-                    value: program.isActive ? "Active" : "Inactive",
-                    label: "Status"
-                )
             }
+            .padding(.top, 4)
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.top, 4)
+    }
+
+    private func heroStatCard(value: String, label: String) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(label.uppercased())
+                .font(.caption2.bold())
+                .tracking(1.5)
+                .foregroundStyle(.secondary)
+            Text(value)
+                .font(.title2.bold())
+                .foregroundStyle(.white)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(16)
+        .background(.white.opacity(0.05), in: RoundedRectangle(cornerRadius: 14))
     }
 
     private var emptyWorkoutsState: some View {
@@ -161,32 +188,35 @@ struct WorkoutTemplateRow: View {
     let workout: WorkoutTemplate
 
     var body: some View {
-        HStack(spacing: 14) {
-            ZStack {
-                Circle()
-                    .fill(.blue.opacity(0.15))
-                    .frame(width: 44, height: 44)
-                Text("\(workout.orderIndex + 1)")
-                    .font(.headline.bold())
-                    .foregroundStyle(.blue)
-            }
-
-            VStack(alignment: .leading, spacing: 4) {
+        HStack(spacing: 16) {
+            VStack(alignment: .leading, spacing: 8) {
                 Text(workout.name)
-                    .font(.headline)
-                    .foregroundStyle(.primary)
-                Text("\(workout.plannedExercises.count) \(workout.plannedExercises.count == 1 ? "exercise" : "exercises")")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
+                    .font(.title3.bold())
+                    .foregroundStyle(.white)
+                    .tracking(-0.3)
+
+                HStack(spacing: 6) {
+                    Circle()
+                        .fill(workout.plannedExercises.isEmpty ? Color.secondary.opacity(0.4) : Color.blue)
+                        .frame(width: 6, height: 6)
+                    Text("\(workout.plannedExercises.count) \(workout.plannedExercises.count == 1 ? "exercise" : "exercises")")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                }
             }
 
             Spacer()
 
-            Image(systemName: "chevron.right")
-                .font(.caption)
-                .foregroundStyle(.tertiary)
+            ZStack {
+                Circle()
+                    .fill(workout.plannedExercises.isEmpty ? Color.white.opacity(0.05) : Color.blue.opacity(0.15))
+                    .frame(width: 40, height: 40)
+                Image(systemName: "chevron.right")
+                    .font(.subheadline.bold())
+                    .foregroundStyle(workout.plannedExercises.isEmpty ? Color.secondary.opacity(0.4) : Color.blue)
+            }
         }
-        .padding(16)
+        .padding(20)
         .glassBackground()
     }
 }

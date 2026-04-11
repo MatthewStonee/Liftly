@@ -21,6 +21,7 @@ struct RackApp: App {
             // Surface the error clearly instead of a silent white screen
             fatalError("SwiftData ModelContainer failed: \(error.localizedDescription)")
         }
+        ExerciseLibrary.seedIfNeeded(context: container.mainContext)
     }
 
     var body: some Scene {
