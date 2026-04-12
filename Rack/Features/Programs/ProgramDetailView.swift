@@ -30,7 +30,7 @@ struct ProgramDetailView: View {
                     emptyWorkoutsState
                 } else {
                     ForEach(program.sortedWorkouts) { workout in
-                        NavigationLink(destination: WorkoutTemplateDetailView(workout: workout)) {
+                        NavigationLink(value: workout) {
                             WorkoutTemplateRow(workout: workout)
                         }
                         .buttonStyle(.plain)
@@ -48,6 +48,9 @@ struct ProgramDetailView: View {
         }
         .navigationTitle(program.name)
         .titleDisplayMode(.inline)
+        .navigationDestination(for: WorkoutTemplate.self) { workout in
+            WorkoutTemplateDetailView(workout: workout)
+        }
         .background { gradient }
         .toolbar {
             ToolbarItem(placement: .primaryAction) {

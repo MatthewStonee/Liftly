@@ -24,6 +24,9 @@ struct ProgramsView: View {
             .background { backgroundGradient }
             .navigationTitle("Programs")
             .titleDisplayMode(.large)
+            .navigationDestination(for: Program.self) { program in
+                ProgramDetailView(program: program)
+            }
             .toolbar {
                 ToolbarItem(placement: .navigationBarLeading) {
                     Button {
@@ -86,7 +89,7 @@ struct ProgramsView: View {
 
                         VStack(spacing: 10) {
                             ForEach(activeProgram == nil ? programs : otherPrograms) { program in
-                                NavigationLink(destination: ProgramDetailView(program: program)) {
+                                NavigationLink(value: program) {
                                     ProgramRow(program: program) {
                                         viewModel.setActive(program, allPrograms: programs, context: context)
                                     }
@@ -105,7 +108,7 @@ struct ProgramsView: View {
 
     @ViewBuilder
     private func activeProgramHero(_ program: Program) -> some View {
-        NavigationLink(destination: ProgramDetailView(program: program)) {
+        NavigationLink(value: program) {
             ZStack(alignment: .bottomLeading) {
                 RoundedRectangle(cornerRadius: 20)
                     .fill(Color(red: 0.08, green: 0.10, blue: 0.22))

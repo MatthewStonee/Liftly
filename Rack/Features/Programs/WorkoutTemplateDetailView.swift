@@ -249,7 +249,7 @@ struct EditPlannedExerciseView: View {
                         TextField("Optional", text: $weight)
                             .keyboardType(.decimalPad)
                             .padding(14)
-                            .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 14))
+                            .background(Color.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 14))
                     }
 
                     Spacer()

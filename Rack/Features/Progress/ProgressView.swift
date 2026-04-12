@@ -6,18 +6,28 @@ import Charts
 
 struct ProgressTabView: View {
     @Query(sort: \Exercise.name) private var exercises: [Exercise]
+    @Query private var plannedExercises: [PlannedExercise]
+
+    private var programExercises: [Exercise] {
+        let usedIDs = Set(plannedExercises.compactMap { $0.exercise?.id })
+        return exercises.filter { usedIDs.contains($0.id) }
+    }
 
     private var weeklyVolume: Double {
         let oneWeekAgo = Calendar.current.date(byAdding: .day, value: -7, to: Date()) ?? Date()
-        return exercises.flatMap { $0.loggedSets }
-            .filter { $0.completedAt >= oneWeekAgo }
-            .reduce(0) { $0 + ($1.weight * Double($1.reps)) }
+        var total: Double = 0
+        for exercise in programExercises {
+            for set in exercise.loggedSets where set.completedAt >= oneWeekAgo {
+                total += set.weight * Double(set.reps)
+            }
+        }
+        return total
     }
 
     var body: some View {
         NavigationStack {
             Group {
-                if exercises.isEmpty {
+                if programExercises.isEmpty {
                     emptyState
                 } else {
                     exerciseList
@@ -27,6 +37,9 @@ struct ProgressTabView: View {
             .background { backgroundGradient }
             .navigationTitle("Progress")
             .titleDisplayMode(.large)
+            .navigationDestination(for: Exercise.self) { exercise in
+                ExerciseProgressView(exercise: exercise)
+            }
         }
     }
 
@@ -70,8 +83,8 @@ struct ProgressTabView: View {
             VStack(spacing: 12) {
                 weeklyVolumeCard
 
-                ForEach(exercises) { exercise in
-                    NavigationLink(destination: ExerciseProgressView(exercise: exercise)) {
+                ForEach(programExercises) { exercise in
+                    NavigationLink(value: exercise) {
                         ExerciseProgressRow(exercise: exercise)
                     }
                     .buttonStyle(.plain)
@@ -192,13 +205,14 @@ struct ExerciseProgressView: View {
     @State private var setToEdit: LoggedSet?
     @Namespace private var pickerNamespace
 
-    private var allSets: [LoggedSet] { exercise.loggedSets.sorted { $0.completedAt < $1.completedAt } }
-    private var filteredSets: [LoggedSet] { viewModel.filteredSets(allSets, for: viewModel.timeRange) }
-    private var chartPoints: [(Date, Double)] { viewModel.maxWeightPoints(for: filteredSets) }
-    private var pr: LoggedSet? { viewModel.personalRecord(for: allSets) }
-    private var totalVol: Double { viewModel.totalVolume(for: filteredSets) }
-
     var body: some View {
+        let allSets = exercise.loggedSets.sorted { $0.completedAt < $1.completedAt }
+        let filteredSets = viewModel.filteredSets(allSets, for: viewModel.timeRange)
+        let chartPoints = viewModel.maxWeightPoints(for: filteredSets)
+        let pr = viewModel.personalRecord(for: allSets)
+        let totalVol = viewModel.totalVolume(for: filteredSets)
+        let recentSets = Array(filteredSets.suffix(20).reversed())
+
         ScrollView {
             VStack(spacing: 16) {
                 Text(exercise.name)
@@ -206,10 +220,10 @@ struct ExerciseProgressView: View {
                     .foregroundStyle(.white)
                     .tracking(-0.5)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                statsCard
+                statsCard(pr: pr, totalVol: totalVol)
                 timeRangePicker
-                chartCard
-                setHistoryCard
+                chartCard(chartPoints: chartPoints)
+                setHistoryCard(recentSets: recentSets, isEmpty: filteredSets.isEmpty)
             }
             .padding(.horizontal, 16)
             .padding(.top, 8)
@@ -232,7 +246,7 @@ struct ExerciseProgressView: View {
                     .font(.title2.bold())
                     .foregroundStyle(.blue)
                     .frame(width: 58, height: 58)
-                    .background(.ultraThinMaterial, in: Circle())
+                    .background(Color.white.opacity(0.06), in: Circle())
                     .overlay(
                         Circle().strokeBorder(
                             LinearGradient(
@@ -264,7 +278,7 @@ struct ExerciseProgressView: View {
 
     // MARK: Cards
 
-    private var statsCard: some View {
+    private func statsCard(pr: LoggedSet?, totalVol: Double) -> some View {
         GlassCard {
             HStack(spacing: 8) {
                 StatBadge(
@@ -312,7 +326,7 @@ struct ExerciseProgressView: View {
         }
     }
 
-    private var chartCard: some View {
+    private func chartCard(chartPoints: [(Date, Double)]) -> some View {
         GlassCard {
             VStack(alignment: .leading, spacing: 12) {
                 Text("Max Weight Over Time")
@@ -390,7 +404,7 @@ struct ExerciseProgressView: View {
         }
     }
 
-    private var setHistoryCard: some View {
+    private func setHistoryCard(recentSets: [LoggedSet], isEmpty: Bool) -> some View {
         GlassCard(padding: 14) {
             VStack(alignment: .leading, spacing: 10) {
                 Text("Recent Sets")
@@ -398,7 +412,7 @@ struct ExerciseProgressView: View {
                     .foregroundStyle(.secondary)
 
                 Group {
-                if filteredSets.isEmpty {
+                if isEmpty {
                     Text("No sets logged in this period.")
                         .font(.subheadline)
                         .foregroundStyle(.tertiary)
@@ -406,7 +420,7 @@ struct ExerciseProgressView: View {
                         .padding(.vertical, 8)
                 } else {
                     VStack(spacing: 0) {
-                    ForEach(filteredSets.suffix(20).reversed()) { set in
+                    ForEach(recentSets) { set in
                         HStack {
                             Text(set.completedAt.formatted(.dateTime.month(.abbreviated).day()))
                                 .font(.caption)
@@ -435,7 +449,7 @@ struct ExerciseProgressView: View {
                             }
                         }
 
-                        if set.id != filteredSets.suffix(20).reversed().last?.id {
+                        if set.id != recentSets.last?.id {
                             Divider().background(.white.opacity(0.07))
                         }
                     }
@@ -489,7 +503,7 @@ struct QuickLogSheet: View {
                         .font(.title2.bold())
                         .multilineTextAlignment(.center)
                         .padding(16)
-                        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 14))
+                        .background(Color.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 14))
                         .overlay(
                             RoundedRectangle(cornerRadius: 14)
                                 .strokeBorder(.white.opacity(0.1), lineWidth: 0.5)
@@ -508,7 +522,7 @@ struct QuickLogSheet: View {
                                 .font(.title3.bold())
                                 .frame(maxWidth: .infinity)
                                 .padding(.vertical, 16)
-                                .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 14))
+                                .background(Color.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 14))
                         }
                         .buttonStyle(.plain)
 
@@ -523,7 +537,7 @@ struct QuickLogSheet: View {
                                 .font(.title3.bold())
                                 .frame(maxWidth: .infinity)
                                 .padding(.vertical, 16)
-                                .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 14))
+                                .background(Color.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 14))
                         }
                         .buttonStyle(.plain)
                     }
@@ -538,7 +552,7 @@ struct QuickLogSheet: View {
                         .labelsHidden()
                         .padding(14)
                         .frame(maxWidth: .infinity, alignment: .leading)
-                        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 14))
+                        .background(Color.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 14))
                         .overlay(
                             RoundedRectangle(cornerRadius: 14)
                                 .strokeBorder(.white.opacity(0.1), lineWidth: 0.5)
@@ -634,7 +648,7 @@ struct EditLoggedSetSheet: View {
                         .font(.title2.bold())
                         .multilineTextAlignment(.center)
                         .padding(16)
-                        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 14))
+                        .background(Color.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 14))
                         .overlay(
                             RoundedRectangle(cornerRadius: 14)
                                 .strokeBorder(.white.opacity(0.1), lineWidth: 0.5)
@@ -653,7 +667,7 @@ struct EditLoggedSetSheet: View {
                                 .font(.title3.bold())
                                 .frame(maxWidth: .infinity)
                                 .padding(.vertical, 16)
-                                .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 14))
+                                .background(Color.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 14))
                         }
                         .buttonStyle(.plain)
 
@@ -668,7 +682,7 @@ struct EditLoggedSetSheet: View {
                                 .font(.title3.bold())
                                 .frame(maxWidth: .infinity)
                                 .padding(.vertical, 16)
-                                .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 14))
+                                .background(Color.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 14))
                         }
                         .buttonStyle(.plain)
                     }
@@ -683,7 +697,7 @@ struct EditLoggedSetSheet: View {
                         .labelsHidden()
                         .padding(14)
                         .frame(maxWidth: .infinity, alignment: .leading)
-                        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 14))
+                        .background(Color.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 14))
                         .overlay(
                             RoundedRectangle(cornerRadius: 14)
                                 .strokeBorder(.white.opacity(0.1), lineWidth: 0.5)
