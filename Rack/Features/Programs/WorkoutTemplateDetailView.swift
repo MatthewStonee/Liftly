@@ -190,6 +190,7 @@ struct PlannedExerciseRow: View {
                         Image(systemName: "ellipsis.circle")
                             .font(.title3)
                             .foregroundStyle(.secondary)
+                            .frame(width: 44, height: 44)
                     }
                 } else {
                     Image(systemName: "line.3.horizontal")

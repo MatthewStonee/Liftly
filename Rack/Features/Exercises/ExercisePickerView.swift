@@ -147,7 +147,7 @@ struct FilterChip: View {
             Text(title)
                 .font(.subheadline.bold())
                 .padding(.horizontal, 14)
-                .padding(.vertical, 7)
+                .padding(.vertical, 14)
                 .background(
                     isSelected ? Color.blue : Color.white.opacity(0.08),
                     in: Capsule()

@@ -23,6 +23,8 @@ struct ReorderableForEach<T: Identifiable, Content: View>: View where T.ID: Hash
     @State private var dragStartMidY: CGFloat = 0
     @State private var itemFrames: [AnyHashable: CGRect] = [:]
     @State private var justDropped = false
+    @State private var longPressActivated = false
+    @State private var liftHapticTrigger = false
 
     var body: some View {
         VStack(spacing: 12) {
@@ -46,9 +48,7 @@ struct ReorderableForEach<T: Identifiable, Content: View>: View where T.ID: Hash
         }
         .coordinateSpace(name: "reorderVStack")
         .onPreferenceChange(RowFrameKey.self) { itemFrames = $0 }
-        .sensoryFeedback(trigger: draggedId) { old, new in
-            old == nil && new != nil ? .impact(weight: .medium) : nil
-        }
+        .sensoryFeedback(.impact(flexibility: .rigid, intensity: 1.0), trigger: liftHapticTrigger)
         .onChange(of: draggedId != nil) { _, nowDragging in
             isDragging = nowDragging
         }
@@ -68,7 +68,12 @@ struct ReorderableForEach<T: Identifiable, Content: View>: View where T.ID: Hash
             .sequenced(before: DragGesture(minimumDistance: 0))
             .onChanged { seq in
                 switch seq {
-                case .second(_, let drag?):
+                case .second(true, let drag):
+                    if !longPressActivated {
+                        longPressActivated = true
+                        liftHapticTrigger.toggle()
+                    }
+                    guard let drag else { break }
                     if draggedId == nil {
                         draggedId = item.id
                         dragStartIndex = items.firstIndex(where: { $0.id == item.id }) ?? 0
@@ -88,6 +93,7 @@ struct ReorderableForEach<T: Identifiable, Content: View>: View where T.ID: Hash
             return
         }
 
+        longPressActivated = false
         // Briefly suppress hit-testing so the NavigationLink doesn't fire on finger lift
         justDropped = true
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
@@ -125,6 +131,7 @@ struct ReorderableForEach<T: Identifiable, Content: View>: View where T.ID: Hash
     }
 
     private func resetDrag() {
+        longPressActivated = false
         withAnimation(.spring(response: 0.25)) {
             dragOffsetY = 0
         }
