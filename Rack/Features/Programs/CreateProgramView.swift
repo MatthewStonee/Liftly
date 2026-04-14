@@ -18,11 +18,7 @@ struct CreateProgramView: View {
                     TextField("e.g. 5-Day PPL Split", text: $name)
                         .font(.body)
                         .padding(14)
-                        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 14))
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 14)
-                                .strokeBorder(.white.opacity(0.1), lineWidth: 0.5)
-                        )
+                        .glassEffect(.regular, in: .rect(cornerRadius: 14))
                 }
 
                 VStack(alignment: .leading, spacing: 8) {
@@ -33,11 +29,7 @@ struct CreateProgramView: View {
                         .font(.body)
                         .lineLimit(3...5)
                         .padding(14)
-                        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 14))
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 14)
-                                .strokeBorder(.white.opacity(0.1), lineWidth: 0.5)
-                        )
+                        .glassEffect(.regular, in: .rect(cornerRadius: 14))
                 }
 
                 Spacer()
