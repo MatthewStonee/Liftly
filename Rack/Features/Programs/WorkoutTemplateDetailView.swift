@@ -5,13 +5,15 @@ struct WorkoutTemplateDetailView: View {
     @Environment(\.modelContext) private var context
     @Environment(\.dismiss) private var dismiss
     @Bindable var workout: WorkoutTemplate
+    var onDeleteWorkout: (() -> Void)?
     @State private var showingExercisePicker = false
     @State private var editingTitle = false
     @State private var draftName = ""
-    @State private var confirmingDelete = false
     @State private var viewModel = WorkoutTemplateDetailViewModel()
     @State private var localExercises: [PlannedExercise] = []
     @State private var isReordering = false
+    @State private var pendingDeleteExercise: PlannedExercise?
+    @State private var exerciseDeleteTask: Task<Void, Never>?
 
     var body: some View {
         ScrollView {
@@ -61,7 +63,7 @@ struct WorkoutTemplateDetailView: View {
                         Label("Rename", systemImage: "pencil")
                     }
                     Button(role: .destructive) {
-                        confirmingDelete = true
+                        deleteWorkout()
                     } label: {
                         Label("Delete Workout Day", systemImage: "trash")
                     }
@@ -83,19 +85,26 @@ struct WorkoutTemplateDetailView: View {
             }
             Button("Cancel", role: .cancel) {}
         }
-        .alert("Delete Workout Day", isPresented: $confirmingDelete) {
-            Button("Delete", role: .destructive) { deleteWorkout() }
-            Button("Cancel", role: .cancel) {}
-        } message: {
-            Text("\"\(workout.name)\" and all its exercises will be permanently removed.")
-        }
         .sheet(isPresented: $showingExercisePicker) {
             ExercisePickerView { exercise in
                 addExercise(exercise)
             }
         }
-        .onAppear { localExercises = workout.sortedExercises }
-        .onChange(of: workout.plannedExercises.count) { localExercises = workout.sortedExercises }
+        .onAppear { localExercises = workout.sortedExercises.filter { $0.id != pendingDeleteExercise?.id } }
+        .onChange(of: workout.plannedExercises.count) { localExercises = workout.sortedExercises.filter { $0.id != pendingDeleteExercise?.id } }
+        .undoToast(
+            isPresented: Binding(
+                get: { pendingDeleteExercise != nil },
+                set: { if !$0 { pendingDeleteExercise = nil } }
+            ),
+            message: "Exercise deleted",
+            onUndo: {
+                exerciseDeleteTask?.cancel()
+                exerciseDeleteTask = nil
+                pendingDeleteExercise = nil
+                localExercises = workout.sortedExercises
+            }
+        )
     }
 
     private var emptyExercisesState: some View {
@@ -132,17 +141,23 @@ struct WorkoutTemplateDetailView: View {
     }
 
     private func deletePlannedExercise(_ planned: PlannedExercise) {
-        workout.plannedExercises.removeAll { $0.id == planned.id }
-        context.delete(planned)
-        try? context.save()
+        exerciseDeleteTask?.cancel()
+        localExercises.removeAll { $0.id == planned.id }
+        pendingDeleteExercise = planned
+        exerciseDeleteTask = Task {
+            try? await Task.sleep(for: .seconds(4))
+            guard !Task.isCancelled else { return }
+            await MainActor.run {
+                workout.plannedExercises.removeAll { $0.id == planned.id }
+                context.delete(planned)
+                try? context.save()
+                pendingDeleteExercise = nil
+            }
+        }
     }
 
     private func deleteWorkout() {
-        if let program = workout.program {
-            program.workouts.removeAll { $0.id == workout.id }
-        }
-        context.delete(workout)
-        try? context.save()
+        onDeleteWorkout?()
         dismiss()
     }
 }

@@ -7,14 +7,19 @@ struct ProgramsView: View {
     @State private var viewModel = ProgramsViewModel()
     @State private var showingCreateProgram = false
     @State private var showingSettings = false
+    @State private var pendingDeleteProgram: Program?
+    @State private var deleteTask: Task<Void, Never>?
 
-    private var activeProgram: Program? { programs.first { $0.isActive } }
-    private var otherPrograms: [Program] { programs.filter { !$0.isActive } }
+    private var visiblePrograms: [Program] {
+        programs.filter { $0.id != pendingDeleteProgram?.id }
+    }
+    private var activeProgram: Program? { visiblePrograms.first { $0.isActive } }
+    private var otherPrograms: [Program] { visiblePrograms.filter { !$0.isActive } }
 
     var body: some View {
         NavigationStack {
             Group {
-                if programs.isEmpty {
+                if visiblePrograms.isEmpty {
                     emptyState
                 } else {
                     programList
@@ -25,8 +30,31 @@ struct ProgramsView: View {
             .navigationTitle("Programs")
             .titleDisplayMode(.large)
             .navigationDestination(for: Program.self) { program in
-                ProgramDetailView(program: program)
+                ProgramDetailView(program: program, onDeleteProgram: {
+                    pendingDeleteProgram = program
+                    deleteTask = Task {
+                        try? await Task.sleep(for: .seconds(4))
+                        guard !Task.isCancelled else { return }
+                        await MainActor.run {
+                            context.delete(program)
+                            try? context.save()
+                            pendingDeleteProgram = nil
+                        }
+                    }
+                })
             }
+            .undoToast(
+                isPresented: Binding(
+                    get: { pendingDeleteProgram != nil },
+                    set: { if !$0 { pendingDeleteProgram = nil } }
+                ),
+                message: "Program deleted",
+                onUndo: {
+                    deleteTask?.cancel()
+                    deleteTask = nil
+                    pendingDeleteProgram = nil
+                }
+            )
             .toolbar {
                 ToolbarItem(placement: .navigationBarLeading) {
                     Button {

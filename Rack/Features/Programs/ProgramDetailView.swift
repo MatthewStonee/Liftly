@@ -6,12 +6,14 @@ struct ProgramDetailView: View {
     @Environment(\.dismiss) private var dismiss
     @Bindable var program: Program
     @Query private var allPrograms: [Program]
+    var onDeleteProgram: (() -> Void)?
     @State private var showingAddWorkout = false
     @State private var editingWorkoutName: WorkoutTemplate?
     @State private var newWorkoutName = ""
     @State private var editingTitle = false
     @State private var draftName = ""
-    @State private var confirmingDelete = false
+    @State private var pendingDeleteWorkout: WorkoutTemplate?
+    @State private var workoutDeleteTask: Task<Void, Never>?
     @FocusState private var workoutNameFocused: Bool
     @State private var viewModel = ProgramDetailViewModel()
     @State private var localWorkouts: [WorkoutTemplate] = []
@@ -74,7 +76,22 @@ struct ProgramDetailView: View {
         .navigationTitle(program.name)
         .titleDisplayMode(.inline)
         .navigationDestination(item: $selectedWorkout) { workout in
-            WorkoutTemplateDetailView(workout: workout)
+            WorkoutTemplateDetailView(workout: workout, onDeleteWorkout: {
+                localWorkouts.removeAll { $0.id == workout.id }
+                pendingDeleteWorkout = workout
+                workoutDeleteTask = Task {
+                    try? await Task.sleep(for: .seconds(4))
+                    guard !Task.isCancelled else { return }
+                    await MainActor.run {
+                        if let program = workout.program {
+                            program.workouts.removeAll { $0.id == workout.id }
+                        }
+                        context.delete(workout)
+                        try? context.save()
+                        pendingDeleteWorkout = nil
+                    }
+                }
+            })
         }
         .background { gradient }
         .toolbar {
@@ -96,7 +113,7 @@ struct ProgramDetailView: View {
                         Label("Rename", systemImage: "pencil")
                     }
                     Button(role: .destructive) {
-                        confirmingDelete = true
+                        deleteProgram()
                     } label: {
                         Label("Delete Program", systemImage: "trash")
                     }
@@ -118,14 +135,21 @@ struct ProgramDetailView: View {
             }
             Button("Cancel", role: .cancel) {}
         }
-        .alert("Delete Program", isPresented: $confirmingDelete) {
-            Button("Delete", role: .destructive) { deleteProgram() }
-            Button("Cancel", role: .cancel) {}
-        } message: {
-            Text("\"\(program.name)\" and all its workout days will be permanently removed.")
-        }
-        .onAppear { localWorkouts = program.sortedWorkouts }
-        .onChange(of: program.workouts.count) { localWorkouts = program.sortedWorkouts }
+        .onAppear { localWorkouts = program.sortedWorkouts.filter { $0.id != pendingDeleteWorkout?.id } }
+        .onChange(of: program.workouts.count) { localWorkouts = program.sortedWorkouts.filter { $0.id != pendingDeleteWorkout?.id } }
+        .undoToast(
+            isPresented: Binding(
+                get: { pendingDeleteWorkout != nil },
+                set: { if !$0 { pendingDeleteWorkout = nil } }
+            ),
+            message: "Workout day deleted",
+            onUndo: {
+                workoutDeleteTask?.cancel()
+                workoutDeleteTask = nil
+                pendingDeleteWorkout = nil
+                localWorkouts = program.sortedWorkouts
+            }
+        )
     }
 
     private var addWorkoutOverlay: some View {
@@ -221,8 +245,7 @@ struct ProgramDetailView: View {
     }
 
     private func deleteProgram() {
-        context.delete(program)
-        try? context.save()
+        onDeleteProgram?()
         dismiss()
     }
 
