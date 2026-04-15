@@ -167,6 +167,7 @@ struct PlannedExerciseRow: View {
     let isDragging: Bool
     let onDelete: () -> Void
     @State private var showingEdit = false
+    @AppStorage("weightUnit") private var weightUnit: WeightUnit = .lbs
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -218,7 +219,7 @@ struct PlannedExerciseRow: View {
                 SetRepsBadge(value: "\(planned.sets)", label: "sets")
                 SetRepsBadge(value: "\(planned.reps)", label: "reps")
                 if let weight = planned.targetWeight {
-                    SetRepsBadge(value: String(format: "%.0f", weight), label: "lbs")
+                    SetRepsBadge(value: weight.formattedWeight(unit: weightUnit), label: weightUnit.symbol)
                 }
             }
         }
@@ -239,6 +240,7 @@ struct EditPlannedExerciseView: View {
     @State private var sets: Int = 3
     @State private var reps: Int = 8
     @State private var weight: String = ""
+    @AppStorage("weightUnit") private var weightUnit: WeightUnit = .lbs
 
     var body: some View {
         NavigationStack {
@@ -263,7 +265,7 @@ struct EditPlannedExerciseView: View {
                     }
 
                     VStack(alignment: .leading, spacing: 8) {
-                        Text("Target Weight (lbs)")
+                        Text("Target Weight (\(weightUnit.symbol))")
                             .font(.subheadline.bold())
                             .foregroundStyle(.secondary)
                         TextField("Optional", text: $weight)
@@ -289,7 +291,7 @@ struct EditPlannedExerciseView: View {
                 sets = planned.sets
                 reps = planned.reps
                 if let w = planned.targetWeight {
-                    weight = String(format: "%.0f", w)
+                    weight = w.formattedWeight(unit: weightUnit)
                 }
             }
         }
@@ -298,7 +300,7 @@ struct EditPlannedExerciseView: View {
     private func save() {
         planned.sets = sets
         planned.reps = reps
-        planned.targetWeight = Double(weight)
+        planned.targetWeight = Double(weight).map { weightUnit.store($0) }
         try? context.save()
         dismiss()
     }

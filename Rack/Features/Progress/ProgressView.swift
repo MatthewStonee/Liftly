@@ -8,6 +8,7 @@ struct ProgressTabView: View {
     @Query(sort: \Exercise.name) private var exercises: [Exercise]
     @Query private var plannedExercises: [PlannedExercise]
     @State private var viewModel = ProgressViewModel()
+    @AppStorage("weightUnit") private var weightUnit: WeightUnit = .lbs
 
     private var programExercises: [Exercise] {
         let usedIDs = Set(plannedExercises.compactMap { $0.exercise?.id })
@@ -61,11 +62,11 @@ struct ProgressTabView: View {
                 .foregroundStyle(.blue)
 
             HStack(alignment: .firstTextBaseline, spacing: 4) {
-                Text(weeklyVolume > 0 ? String(format: "%.0f", weeklyVolume) : "\u{2014}")
+                Text(weeklyVolume > 0 ? String(format: "%.0f", weightUnit.display(weeklyVolume)) : "\u{2014}")
                     .font(.system(size: 34, weight: .black))
                     .foregroundStyle(.white)
                 if weeklyVolume > 0 {
-                    Text("lbs")
+                    Text(weightUnit.symbol)
                         .font(.title3)
                         .foregroundStyle(.secondary)
                 }
@@ -122,6 +123,7 @@ struct ProgressTabView: View {
 
 struct ExerciseProgressRow: View {
     let exercise: Exercise
+    @AppStorage("weightUnit") private var weightUnit: WeightUnit = .lbs
 
     private var sortedSets: [LoggedSet] { exercise.loggedSets.sorted { $0.completedAt > $1.completedAt } }
     private var prWeight: Double { sortedSets.map(\.weight).max() ?? 0 }
@@ -151,10 +153,10 @@ struct ExerciseProgressRow: View {
                             .foregroundStyle(.secondary)
                         if prWeight > 0 {
                             HStack(alignment: .firstTextBaseline, spacing: 2) {
-                                Text("\(Int(prWeight))")
+                                Text(prWeight.formattedWeight(unit: weightUnit))
                                     .font(.title3.bold())
                                     .foregroundStyle(.white)
-                                Text("lbs")
+                                Text(weightUnit.symbol)
                                     .font(.caption)
                                     .foregroundStyle(.secondary)
                             }
@@ -205,6 +207,7 @@ struct ExerciseProgressView: View {
     @State private var showingQuickLog = false
     @State private var setToEdit: LoggedSet?
     @Namespace private var pickerNamespace
+    @AppStorage("weightUnit") private var weightUnit: WeightUnit = .lbs
 
     var body: some View {
         let allSets = exercise.loggedSets.sorted { $0.completedAt < $1.completedAt }
@@ -287,7 +290,7 @@ struct ExerciseProgressView: View {
         GlassCard {
             HStack(spacing: 8) {
                 StatBadge(
-                    value: pr.map { "\(Int($0.weight)) lbs" } ?? "\u{2014}",
+                    value: pr.map { "\($0.weight.formattedWeight(unit: weightUnit)) \(weightUnit.symbol)" } ?? "\u{2014}",
                     label: "PR Weight"
                 )
                 StatBadge(
@@ -295,8 +298,8 @@ struct ExerciseProgressView: View {
                     label: "At PR"
                 )
                 StatBadge(
-                    value: totalVol > 0 ? String(format: "%.0f", totalVol) : "\u{2014}",
-                    label: "Total Vol. (lbs)"
+                    value: totalVol > 0 ? String(format: "%.0f", weightUnit.display(totalVol)) : "\u{2014}",
+                    label: "Total Vol. (\(weightUnit.symbol))"
                 )
             }
         }
@@ -431,7 +434,7 @@ struct ExerciseProgressView: View {
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
                                 .frame(width: 50, alignment: .leading)
-                            Text(set.weight == 0 ? "Bodyweight" : "\(Int(set.weight)) lbs")
+                            Text(set.weight == 0 ? "Bodyweight" : "\(set.weight.formattedWeight(unit: weightUnit)) \(weightUnit.symbol)")
                                 .font(.subheadline)
                             Spacer()
                             Text("\u{d7} \(set.reps)")
@@ -480,6 +483,7 @@ struct QuickLogSheet: View {
     @State private var weightText: String = ""
     @State private var reps: Int = 5
     @State private var date: Date = .now
+    @AppStorage("weightUnit") private var weightUnit: WeightUnit = .lbs
 
     var body: some View {
         NavigationStack {
@@ -501,7 +505,7 @@ struct QuickLogSheet: View {
                 .glassBackground()
 
                 VStack(alignment: .leading, spacing: 8) {
-                    Text("Weight (lbs)")
+                    Text("Weight (\(weightUnit.symbol))")
                         .font(.subheadline.bold())
                         .foregroundStyle(.secondary)
                     TextField("0", text: $weightText)
@@ -599,14 +603,14 @@ struct QuickLogSheet: View {
         let sorted = exercise.loggedSets.sorted { $0.completedAt > $1.completedAt }
         if let last = sorted.first {
             if last.weight > 0 {
-                weightText = String(format: "%.0f", last.weight)
+                weightText = last.weight.formattedWeight(unit: weightUnit)
             }
             reps = last.reps
         }
     }
 
     private func logSet() {
-        let weight = Double(weightText) ?? 0
+        let weight = weightUnit.store(Double(weightText) ?? 0)
         let set = LoggedSet(exercise: exercise, reps: reps, weight: weight)
         set.completedAt = date
         let isPR = viewModel.isNewPersonalRecord(exercise: exercise, weight: weight, reps: reps)
@@ -631,6 +635,7 @@ struct EditLoggedSetSheet: View {
     @State private var date: Date = .now
     @State private var originalReps: Int = 0
     @State private var originalWeight: Double = 0
+    @AppStorage("weightUnit") private var weightUnit: WeightUnit = .lbs
 
     var body: some View {
         NavigationStack {
@@ -654,7 +659,7 @@ struct EditLoggedSetSheet: View {
                 }
 
                 VStack(alignment: .leading, spacing: 8) {
-                    Text("Weight (lbs)")
+                    Text("Weight (\(weightUnit.symbol))")
                         .font(.subheadline.bold())
                         .foregroundStyle(.secondary)
                     TextField("0", text: $weightText)
@@ -745,7 +750,7 @@ struct EditLoggedSetSheet: View {
             }
         }
         .onAppear {
-            weightText = set.weight > 0 ? String(format: "%.0f", set.weight) : ""
+            weightText = set.weight > 0 ? set.weight.formattedWeight(unit: weightUnit) : ""
             reps = set.reps
             date = set.completedAt
             originalReps = set.reps
@@ -754,7 +759,7 @@ struct EditLoggedSetSheet: View {
     }
 
     private func saveChanges() {
-        let newWeight = Double(weightText) ?? 0
+        let newWeight = weightUnit.store(Double(weightText) ?? 0)
         guard let exercise = set.exercise else { return }
 
         // If reps changed and this was a PR, promote the next-best at the old rep count

@@ -2,6 +2,7 @@ import SwiftUI
 
 struct SettingsView: View {
     @Environment(\.dismiss) private var dismiss
+    @AppStorage("weightUnit") private var weightUnit: WeightUnit = .lbs
 
     var body: some View {
         NavigationStack {
@@ -13,22 +14,59 @@ struct SettingsView: View {
                 )
                 .ignoresSafeArea()
 
-                VStack(spacing: 20) {
-                    Image(systemName: "gearshape.2")
-                        .font(.system(size: 64))
-                        .symbolRenderingMode(.hierarchical)
-                        .foregroundStyle(.blue)
-
-                    VStack(spacing: 8) {
-                        Text("Settings")
-                            .font(.title2.bold())
-                        Text("Units, preferences, and more\ncoming soon.")
-                            .font(.subheadline)
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Units")
+                            .font(.footnote.bold())
                             .foregroundStyle(.secondary)
-                            .multilineTextAlignment(.center)
+                            .textCase(.uppercase)
+                            .padding(.horizontal, 4)
+
+                        GlassCard(padding: 0) {
+                            VStack(alignment: .leading, spacing: 12) {
+                                HStack(spacing: 8) {
+                                    Image(systemName: "scalemass")
+                                        .font(.body.weight(.semibold))
+                                        .foregroundStyle(.blue)
+                                    Text("Weight Unit")
+                                        .font(.body)
+                                }
+                                .padding(.horizontal, 16)
+                                .padding(.top, 14)
+
+                                HStack(spacing: 8) {
+                                    ForEach([WeightUnit.lbs, WeightUnit.kg], id: \.self) { unit in
+                                        Button {
+                                            weightUnit = unit
+                                        } label: {
+                                            Text(unit.symbol)
+                                                .font(.headline)
+                                                .frame(maxWidth: .infinity)
+                                                .padding(.vertical, 14)
+                                                .background(
+                                                    weightUnit == unit
+                                                        ? Color.blue.opacity(0.25)
+                                                        : Color.white.opacity(0.06),
+                                                    in: RoundedRectangle(cornerRadius: 12)
+                                                )
+                                                .overlay(
+                                                    RoundedRectangle(cornerRadius: 12)
+                                                        .strokeBorder(
+                                                            weightUnit == unit ? Color.blue.opacity(0.6) : Color.clear,
+                                                            lineWidth: 1
+                                                        )
+                                                )
+                                                .foregroundStyle(weightUnit == unit ? .blue : .secondary)
+                                        }
+                                    }
+                                }
+                                .padding(.horizontal, 16)
+                                .padding(.bottom, 14)
+                            }
+                        }
                     }
+                    .padding(20)
                 }
-                .padding(32)
             }
             .navigationTitle("Settings")
             .titleDisplayMode(.inline)
