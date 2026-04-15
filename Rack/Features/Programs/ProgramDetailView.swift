@@ -276,9 +276,15 @@ struct WorkoutTemplateRow: View {
                     .tracking(-0.3)
 
                 HStack(spacing: 6) {
-                    Circle()
-                        .fill(workout.plannedExercises.isEmpty ? Color.secondary.opacity(0.4) : Color.blue)
-                        .frame(width: 6, height: 6)
+                    if workout.plannedExercises.isEmpty {
+                        Circle()
+                            .stroke(Color.secondary.opacity(0.4), lineWidth: 1)
+                            .frame(width: 6, height: 6)
+                    } else {
+                        Circle()
+                            .fill(Color.blue)
+                            .frame(width: 6, height: 6)
+                    }
                     Text("\(workout.plannedExercises.count) \(workout.plannedExercises.count == 1 ? "exercise" : "exercises")")
                         .font(.subheadline)
                         .foregroundStyle(.secondary)

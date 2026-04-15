@@ -238,15 +238,6 @@ struct ProgramRow: View {
 
     var body: some View {
         HStack(spacing: 14) {
-            ZStack {
-                RoundedRectangle(cornerRadius: 12)
-                    .fill(.white.opacity(0.06))
-                    .frame(width: 52, height: 52)
-                Image(systemName: "dumbbell")
-                    .font(.system(size: 20, weight: .medium))
-                    .foregroundStyle(.secondary)
-            }
-
             VStack(alignment: .leading, spacing: 4) {
                 Text(program.name)
                     .font(.headline.bold())

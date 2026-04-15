@@ -58,21 +58,17 @@ final class PlannedExercise {
     var sets: Int
     var reps: Int
     var targetWeight: Double?
-    var restSeconds: Int
     var orderIndex: Int
-    var notes: String
 
     var exercise: Exercise?
     var workoutTemplate: WorkoutTemplate?
 
-    init(exercise: Exercise, sets: Int = 3, reps: Int = 8, targetWeight: Double? = nil, restSeconds: Int = 90, orderIndex: Int = 0) {
+    init(exercise: Exercise, sets: Int = 3, reps: Int = 8, targetWeight: Double? = nil, orderIndex: Int = 0) {
         self.id = UUID()
         self.sets = sets
         self.reps = reps
         self.targetWeight = targetWeight
-        self.restSeconds = restSeconds
         self.orderIndex = orderIndex
-        self.notes = ""
         self.exercise = exercise
     }
 }

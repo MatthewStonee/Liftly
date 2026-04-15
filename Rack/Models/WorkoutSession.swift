@@ -53,18 +53,16 @@ final class LoggedSet {
     var id: UUID
     var reps: Int
     var weight: Double
-    var restSeconds: Int
     var completedAt: Date
     var isPersonalRecord: Bool
 
     var exercise: Exercise?
     var session: WorkoutSession?
 
-    init(exercise: Exercise, reps: Int, weight: Double, restSeconds: Int = 0) {
+    init(exercise: Exercise, reps: Int, weight: Double) {
         self.id = UUID()
         self.reps = reps
         self.weight = weight
-        self.restSeconds = restSeconds
         self.completedAt = Date()
         self.isPersonalRecord = false
         self.exercise = exercise

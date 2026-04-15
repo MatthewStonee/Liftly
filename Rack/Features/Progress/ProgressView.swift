@@ -618,6 +618,7 @@ struct QuickLogSheet: View {
         set.isPersonalRecord = isPR
         context.insert(set)
         try? context.save()
+        UINotificationFeedbackGenerator().notificationOccurred(.success)
         dismiss()
     }
 }

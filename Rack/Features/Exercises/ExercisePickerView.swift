@@ -155,6 +155,7 @@ struct FilterChip: View {
                 .foregroundStyle(isSelected ? .white : .secondary)
         }
         .buttonStyle(.plain)
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
     }
 }
 
