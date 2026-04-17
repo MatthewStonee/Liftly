@@ -270,11 +270,6 @@ struct WorkoutTemplateRow: View {
     var body: some View {
         HStack(spacing: 16) {
             VStack(alignment: .leading, spacing: 8) {
-                Text(workout.name)
-                    .font(.title3.bold())
-                    .foregroundStyle(.white)
-                    .tracking(-0.3)
-
                 HStack(spacing: 6) {
                     if workout.plannedExercises.isEmpty {
                         Circle()
@@ -285,9 +280,27 @@ struct WorkoutTemplateRow: View {
                             .fill(Color.blue)
                             .frame(width: 6, height: 6)
                     }
-                    Text("\(workout.plannedExercises.count) \(workout.plannedExercises.count == 1 ? "exercise" : "exercises")")
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
+                    Text(workout.name)
+                        .font(.title3.bold())
+                        .foregroundStyle(.white)
+                        .tracking(-0.3)
+                }
+
+                if !workout.sortedExercises.isEmpty {
+                    let preview = workout.sortedExercises.prefix(3).compactMap(\.exercise?.name)
+                    let overflow = workout.sortedExercises.count - preview.count
+                    let baseText = preview.joined(separator: " · ")
+                    if overflow > 0 {
+                        Text("\(baseText)  +\(overflow) more")
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                    } else {
+                        Text(baseText)
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                    }
                 }
             }
 

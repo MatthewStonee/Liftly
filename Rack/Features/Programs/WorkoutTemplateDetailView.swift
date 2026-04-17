@@ -7,8 +7,7 @@ struct WorkoutTemplateDetailView: View {
     @Bindable var workout: WorkoutTemplate
     var onDeleteWorkout: (() -> Void)?
     @State private var showingExercisePicker = false
-    @State private var editingTitle = false
-    @State private var draftName = ""
+    @State private var showingRenameSheet = false
     @State private var viewModel = WorkoutTemplateDetailViewModel()
     @State private var localExercises: [PlannedExercise] = []
     @State private var isReordering = false
@@ -57,8 +56,7 @@ struct WorkoutTemplateDetailView: View {
             ToolbarItem(placement: .primaryAction) {
                 Menu {
                     Button {
-                        draftName = workout.name
-                        editingTitle = true
+                        showingRenameSheet = true
                     } label: {
                         Label("Rename", systemImage: "pencil")
                     }
@@ -74,16 +72,8 @@ struct WorkoutTemplateDetailView: View {
                 .accessibilityLabel("Workout Options")
             }
         }
-        .alert("Rename Workout Day", isPresented: $editingTitle) {
-            TextField("Workout name", text: $draftName)
-            Button("Save") {
-                let trimmed = draftName.trimmingCharacters(in: .whitespaces)
-                if !trimmed.isEmpty {
-                    workout.name = trimmed
-                    try? context.save()
-                }
-            }
-            Button("Cancel", role: .cancel) {}
+        .sheet(isPresented: $showingRenameSheet) {
+            RenameWorkoutDaySheet(workout: workout)
         }
         .sheet(isPresented: $showingExercisePicker) {
             ExercisePickerView { exercise in
@@ -231,6 +221,68 @@ struct PlannedExerciseRow: View {
         .sheet(isPresented: $showingEdit) {
             EditPlannedExerciseView(planned: planned)
         }
+    }
+}
+
+struct RenameWorkoutDaySheet: View {
+    @Environment(\.dismiss) private var dismiss
+    @Environment(\.modelContext) private var context
+    @Bindable var workout: WorkoutTemplate
+    @State private var name: String = ""
+    @FocusState private var isFocused: Bool
+
+    var body: some View {
+        NavigationStack {
+            ZStack {
+                LinearGradient(
+                    colors: [Color(red: 0.04, green: 0.06, blue: 0.18), Color.black],
+                    startPoint: .top, endPoint: .bottom
+                )
+                .ignoresSafeArea()
+
+                VStack(spacing: 20) {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Workout Day Name")
+                            .font(.subheadline.bold())
+                            .foregroundStyle(.secondary)
+                        TextField("Name", text: $name)
+                            .font(.title3)
+                            .padding(14)
+                            .background(Color.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 14))
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 14)
+                                    .strokeBorder(.white.opacity(0.1), lineWidth: 0.5)
+                            )
+                            .autocorrectionDisabled()
+                            .focused($isFocused)
+                    }
+                    Spacer()
+                    PrimaryButton("Save") { save() }
+                        .disabled(name.trimmingCharacters(in: .whitespaces).isEmpty)
+                }
+                .padding(20)
+            }
+            .navigationTitle("Rename Workout Day")
+            .titleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { dismiss() }
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .onAppear {
+                name = workout.name
+                isFocused = true
+            }
+        }
+    }
+
+    private func save() {
+        let trimmed = name.trimmingCharacters(in: .whitespaces)
+        guard !trimmed.isEmpty else { return }
+        workout.name = trimmed
+        try? context.save()
+        dismiss()
     }
 }
 
