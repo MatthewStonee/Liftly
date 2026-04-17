@@ -83,7 +83,9 @@ struct ProgramDetailView: View {
                     guard !Task.isCancelled else { return }
                     await MainActor.run {
                         if let program = workout.program {
-                            program.workouts.removeAll { $0.id == workout.id }
+                            var workouts = program.workouts ?? []
+                            workouts.removeAll { $0.id == workout.id }
+                            program.workouts = workouts
                         }
                         context.delete(workout)
                         try? context.save()
@@ -126,7 +128,7 @@ struct ProgramDetailView: View {
             CreateProgramView(existingProgram: program)
         }
         .onAppear { localWorkouts = program.sortedWorkouts.filter { $0.id != pendingDeleteWorkout?.id } }
-        .onChange(of: program.workouts.count) { localWorkouts = program.sortedWorkouts.filter { $0.id != pendingDeleteWorkout?.id } }
+        .onChange(of: program.workouts?.count ?? 0) { localWorkouts = program.sortedWorkouts.filter { $0.id != pendingDeleteWorkout?.id } }
         .undoToast(
             isPresented: Binding(
                 get: { pendingDeleteWorkout != nil },
@@ -205,12 +207,12 @@ struct ProgramDetailView: View {
 
             HStack(spacing: 12) {
                 StatBadge(
-                    value: "\(program.workouts.count)",
-                    label: program.workouts.count == 1 ? "Day" : "Days",
+                    value: "\(program.workoutsList.count)",
+                    label: program.workoutsList.count == 1 ? "Day" : "Days",
                     style: .hero
                 )
                 StatBadge(
-                    value: "\(program.workouts.reduce(0) { $0 + $1.plannedExercises.count })",
+                    value: "\(program.exerciseCount)",
                     label: "Exercises",
                     style: .hero
                 )
@@ -254,9 +256,11 @@ struct ProgramDetailView: View {
     private func addWorkout() {
         let trimmed = newWorkoutName.trimmingCharacters(in: .whitespaces)
         guard !trimmed.isEmpty else { return }
-        let workout = WorkoutTemplate(name: trimmed, orderIndex: program.workouts.count)
+        let workout = WorkoutTemplate(name: trimmed, orderIndex: program.workoutsList.count)
         workout.program = program
-        program.workouts.append(workout)
+        var workouts = program.workouts ?? []
+        workouts.append(workout)
+        program.workouts = workouts
         context.insert(workout)
         try? context.save()
         newWorkoutName = ""
@@ -271,7 +275,7 @@ struct WorkoutTemplateRow: View {
         HStack(spacing: 16) {
             VStack(alignment: .leading, spacing: 8) {
                 HStack(spacing: 6) {
-                    if workout.plannedExercises.isEmpty {
+                    if workout.plannedExercisesList.isEmpty {
                         Circle()
                             .stroke(Color.secondary.opacity(0.4), lineWidth: 1)
                             .frame(width: 6, height: 6)
@@ -313,11 +317,11 @@ struct WorkoutTemplateRow: View {
             } else {
                 ZStack {
                     Circle()
-                        .fill(workout.plannedExercises.isEmpty ? Color.white.opacity(0.05) : Color.blue.opacity(0.15))
+                        .fill(workout.plannedExercisesList.isEmpty ? Color.white.opacity(0.05) : Color.blue.opacity(0.15))
                         .frame(width: 40, height: 40)
                     Image(systemName: "chevron.right")
                         .font(.subheadline.bold())
-                        .foregroundStyle(workout.plannedExercises.isEmpty ? Color.secondary.opacity(0.4) : Color.blue)
+                        .foregroundStyle(workout.plannedExercisesList.isEmpty ? Color.secondary.opacity(0.4) : Color.blue)
                 }
             }
         }

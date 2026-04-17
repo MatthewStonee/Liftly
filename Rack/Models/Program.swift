@@ -10,7 +10,7 @@ final class Program {
     var isActive: Bool = false
 
     @Relationship(deleteRule: .cascade, inverse: \WorkoutTemplate.program)
-    var workouts: [WorkoutTemplate] = []
+    var workouts: [WorkoutTemplate]? = []
 
     init(name: String, description: String = "") {
         self.id = UUID()
@@ -20,8 +20,16 @@ final class Program {
         self.isActive = false
     }
 
+    var workoutsList: [WorkoutTemplate] {
+        workouts ?? []
+    }
+
     var sortedWorkouts: [WorkoutTemplate] {
-        workouts.sorted { $0.orderIndex < $1.orderIndex }
+        workoutsList.sorted { $0.orderIndex < $1.orderIndex }
+    }
+
+    var exerciseCount: Int {
+        workoutsList.reduce(0) { $0 + $1.plannedExercisesList.count }
     }
 }
 
@@ -35,10 +43,10 @@ final class WorkoutTemplate {
     var program: Program?
 
     @Relationship(deleteRule: .cascade, inverse: \PlannedExercise.workoutTemplate)
-    var plannedExercises: [PlannedExercise] = []
+    var plannedExercises: [PlannedExercise]? = []
 
-    @Relationship(deleteRule: .nullify)
-    var sessions: [WorkoutSession] = []
+    @Relationship(deleteRule: .nullify, inverse: \WorkoutSession.workoutTemplate)
+    var sessions: [WorkoutSession]? = []
 
     init(name: String, orderIndex: Int = 0) {
         self.id = UUID()
@@ -47,8 +55,12 @@ final class WorkoutTemplate {
         self.createdAt = Date()
     }
 
+    var plannedExercisesList: [PlannedExercise] {
+        plannedExercises ?? []
+    }
+
     var sortedExercises: [PlannedExercise] {
-        plannedExercises.sorted { $0.orderIndex < $1.orderIndex }
+        plannedExercisesList.sorted { $0.orderIndex < $1.orderIndex }
     }
 }
 

@@ -11,7 +11,7 @@ final class WorkoutSession {
     var workoutTemplate: WorkoutTemplate?
 
     @Relationship(deleteRule: .cascade, inverse: \LoggedSet.session)
-    var loggedSets: [LoggedSet] = []
+    var loggedSets: [LoggedSet]? = []
 
     init(workoutTemplate: WorkoutTemplate? = nil) {
         self.id = UUID()
@@ -19,6 +19,10 @@ final class WorkoutSession {
         self.completedAt = nil
         self.notes = ""
         self.workoutTemplate = workoutTemplate
+    }
+
+    var loggedSetsList: [LoggedSet] {
+        loggedSets ?? []
     }
 
     var duration: TimeInterval? {
@@ -38,11 +42,11 @@ final class WorkoutSession {
     }
 
     var totalVolume: Double {
-        loggedSets.reduce(0) { $0 + ($1.weight * Double($1.reps)) }
+        loggedSetsList.reduce(0) { $0 + ($1.weight * Double($1.reps)) }
     }
 
     var setsByExercise: [Exercise: [LoggedSet]] {
-        Dictionary(grouping: loggedSets.compactMap { $0.exercise != nil ? $0 : nil }) {
+        Dictionary(grouping: loggedSetsList.compactMap { $0.exercise != nil ? $0 : nil }) {
             $0.exercise!
         }
     }

@@ -10,11 +10,11 @@ final class Exercise {
     var equipment: Equipment = Equipment.barbell
     var createdAt: Date = Date()
 
-    @Relationship(deleteRule: .nullify)
-    var plannedExercises: [PlannedExercise] = []
+    @Relationship(deleteRule: .nullify, inverse: \PlannedExercise.exercise)
+    var plannedExercises: [PlannedExercise]? = []
 
-    @Relationship(deleteRule: .nullify)
-    var loggedSets: [LoggedSet] = []
+    @Relationship(deleteRule: .nullify, inverse: \LoggedSet.exercise)
+    var loggedSets: [LoggedSet]? = []
 
     init(name: String, muscleGroup: MuscleGroup, equipment: Equipment) {
         self.id = UUID()
@@ -22,6 +22,14 @@ final class Exercise {
         self.muscleGroup = muscleGroup
         self.equipment = equipment
         self.createdAt = Date()
+    }
+
+    var plannedExercisesList: [PlannedExercise] {
+        plannedExercises ?? []
+    }
+
+    var loggedSetsList: [LoggedSet] {
+        loggedSets ?? []
     }
 }
 

@@ -81,7 +81,7 @@ struct WorkoutTemplateDetailView: View {
             }
         }
         .onAppear { localExercises = workout.sortedExercises.filter { $0.id != pendingDeleteExercise?.id } }
-        .onChange(of: workout.plannedExercises.count) { localExercises = workout.sortedExercises.filter { $0.id != pendingDeleteExercise?.id } }
+        .onChange(of: workout.plannedExercises?.count ?? 0) { localExercises = workout.sortedExercises.filter { $0.id != pendingDeleteExercise?.id } }
         .undoToast(
             isPresented: Binding(
                 get: { pendingDeleteExercise != nil },
@@ -121,10 +121,12 @@ struct WorkoutTemplateDetailView: View {
             exercise: exercise,
             sets: 3,
             reps: 8,
-            orderIndex: workout.plannedExercises.count
+            orderIndex: workout.plannedExercisesList.count
         )
         planned.workoutTemplate = workout
-        workout.plannedExercises.append(planned)
+        var plannedExercises = workout.plannedExercises ?? []
+        plannedExercises.append(planned)
+        workout.plannedExercises = plannedExercises
         context.insert(planned)
         try? context.save()
         localExercises = workout.sortedExercises
@@ -138,7 +140,9 @@ struct WorkoutTemplateDetailView: View {
             try? await Task.sleep(for: .seconds(4))
             guard !Task.isCancelled else { return }
             await MainActor.run {
-                workout.plannedExercises.removeAll { $0.id == planned.id }
+                var plannedExercises = workout.plannedExercises ?? []
+                plannedExercises.removeAll { $0.id == planned.id }
+                workout.plannedExercises = plannedExercises
                 context.delete(planned)
                 try? context.save()
                 pendingDeleteExercise = nil

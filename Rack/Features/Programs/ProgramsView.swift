@@ -168,12 +168,12 @@ struct ProgramsView: View {
 
                     HStack(spacing: 12) {
                         StatBadge(
-                            value: "\(program.workouts.count)",
+                            value: "\(program.workoutsList.count)",
                             label: "Workouts",
                             style: .hero
                         )
                         StatBadge(
-                            value: "\(program.workouts.reduce(0) { $0 + $1.plannedExercises.count })",
+                            value: "\(program.exerciseCount)",
                             label: "Exercises",
                             style: .hero
                         )
@@ -242,7 +242,7 @@ struct ProgramRow: View {
                 Text(program.name)
                     .font(.headline.bold())
                     .foregroundStyle(.white)
-                Text("\(program.workouts.count) \(program.workouts.count == 1 ? "Day" : "Days")  ·  \(program.workouts.reduce(0) { $0 + $1.plannedExercises.count }) Exercises")
+                Text("\(program.workoutsList.count) \(program.workoutsList.count == 1 ? "Day" : "Days")  ·  \(program.exerciseCount) Exercises")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .tracking(0.5)

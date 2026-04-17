@@ -52,7 +52,7 @@ final class ProgressViewModel {
 
     /// Checks if a weight beats the current PR for an exercise at a given rep count.
     func isNewPersonalRecord(exercise: Exercise, weight: Double, reps: Int, excluding: LoggedSet? = nil) -> Bool {
-        let previousMax = exercise.loggedSets
+        let previousMax = exercise.loggedSetsList
             .filter { $0.reps == reps && $0.id != excluding?.id }
             .map(\.weight)
             .max() ?? 0
@@ -61,14 +61,14 @@ final class ProgressViewModel {
 
     /// Clears the PR flag on all sets for an exercise at a given rep count.
     func clearPR(exercise: Exercise, reps: Int, excluding: LoggedSet? = nil) {
-        for set in exercise.loggedSets where set.reps == reps && set.isPersonalRecord && set.id != excluding?.id {
+        for set in exercise.loggedSetsList where set.reps == reps && set.isPersonalRecord && set.id != excluding?.id {
             set.isPersonalRecord = false
         }
     }
 
     /// Promotes the heaviest set at a given rep count to PR after a deletion.
     func promotePR(exercise: Exercise, reps: Int, excluding: LoggedSet? = nil) {
-        if let newPR = exercise.loggedSets
+        if let newPR = exercise.loggedSetsList
             .filter({ $0.reps == reps && $0.id != excluding?.id })
             .max(by: { $0.weight < $1.weight }), newPR.weight > 0 {
             newPR.isPersonalRecord = true
@@ -80,9 +80,9 @@ final class ProgressViewModel {
         guard !UserDefaults.standard.bool(forKey: "prBackfillComplete") else { return }
         for exercise in exercises {
             // Clear all existing PR flags
-            for set in exercise.loggedSets { set.isPersonalRecord = false }
+            for set in exercise.loggedSetsList { set.isPersonalRecord = false }
             // Group by rep count, mark max weight in each group
-            let grouped = Dictionary(grouping: exercise.loggedSets) { $0.reps }
+            let grouped = Dictionary(grouping: exercise.loggedSetsList) { $0.reps }
             for (_, sets) in grouped {
                 if let best = sets.max(by: { $0.weight < $1.weight }), best.weight > 0 {
                     best.isPersonalRecord = true

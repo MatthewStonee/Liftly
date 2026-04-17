@@ -19,7 +19,7 @@ struct ProgressTabView: View {
         let oneWeekAgo = Calendar.current.date(byAdding: .day, value: -7, to: Date()) ?? Date()
         var total: Double = 0
         for exercise in programExercises {
-            for set in exercise.loggedSets where set.completedAt >= oneWeekAgo {
+            for set in exercise.loggedSetsList where set.completedAt >= oneWeekAgo {
                 total += set.weight * Double(set.reps)
             }
         }
@@ -125,7 +125,7 @@ struct ExerciseProgressRow: View {
     let exercise: Exercise
     @AppStorage("weightUnit") private var weightUnit: WeightUnit = .lbs
 
-    private var sortedSets: [LoggedSet] { exercise.loggedSets.sorted { $0.completedAt > $1.completedAt } }
+    private var sortedSets: [LoggedSet] { exercise.loggedSetsList.sorted { $0.completedAt > $1.completedAt } }
     private var prWeight: Double { sortedSets.map(\.weight).max() ?? 0 }
 
     var body: some View {
@@ -210,7 +210,7 @@ struct ExerciseProgressView: View {
     @AppStorage("weightUnit") private var weightUnit: WeightUnit = .lbs
 
     var body: some View {
-        let allSets = exercise.loggedSets.sorted { $0.completedAt < $1.completedAt }
+        let allSets = exercise.loggedSetsList.sorted { $0.completedAt < $1.completedAt }
         let filteredSets = viewModel.filteredSets(allSets, for: viewModel.timeRange)
         let chartPoints = viewModel.maxWeightPoints(for: filteredSets)
         let pr = viewModel.personalRecord(for: allSets)
@@ -600,7 +600,7 @@ struct QuickLogSheet: View {
     }
 
     private func prefill() {
-        let sorted = exercise.loggedSets.sorted { $0.completedAt > $1.completedAt }
+        let sorted = exercise.loggedSetsList.sorted { $0.completedAt > $1.completedAt }
         if let last = sorted.first {
             if last.weight > 0 {
                 weightText = last.weight.formattedWeight(unit: weightUnit)
