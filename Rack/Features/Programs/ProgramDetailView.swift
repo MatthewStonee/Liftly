@@ -42,16 +42,19 @@ struct ProgramDetailView: View {
                             onMove: { from, to in
                                 viewModel.reorderWorkouts(in: program, from: from, to: to, context: context)
                             }
-                        ) { workout, isDraggingThis in
-                            WorkoutTemplateRow(workout: workout, isDragging: isDraggingThis)
-                                .contentShape(Rectangle())
-                                .onTapGesture {
+                        ) { workout, isDraggingThis, dragHandle in
+                            WorkoutTemplateRow(
+                                workout: workout,
+                                isDragging: isDraggingThis,
+                                dragHandle: dragHandle,
+                                onTap: {
                                     guard !isDraggingThis else { return }
                                     selectedWorkout = workout
                                 }
-                                .accessibilityElement()
-                                .accessibilityLabel(workout.name)
-                                .accessibilityAddTraits(.isButton)
+                            )
+                            .accessibilityElement()
+                            .accessibilityLabel(workout.name)
+                            .accessibilityAddTraits(.isButton)
                         }
                     }
 
@@ -271,63 +274,72 @@ struct ProgramDetailView: View {
 struct WorkoutTemplateRow: View {
     let workout: WorkoutTemplate
     let isDragging: Bool
+    let dragHandle: AnyView
+    let onTap: () -> Void
 
     var body: some View {
         HStack(spacing: 16) {
-            VStack(alignment: .leading, spacing: 8) {
-                HStack(spacing: 6) {
-                    if workout.plannedExercisesList.isEmpty {
-                        Circle()
-                            .stroke(Color.secondary.opacity(0.4), lineWidth: 1)
-                            .frame(width: 6, height: 6)
-                    } else {
-                        Circle()
-                            .fill(Color.blue)
-                            .frame(width: 6, height: 6)
+            Button(action: onTap) {
+                HStack(spacing: 16) {
+                    VStack(alignment: .leading, spacing: 8) {
+                        HStack(spacing: 6) {
+                            if workout.plannedExercisesList.isEmpty {
+                                Circle()
+                                    .stroke(Color.secondary.opacity(0.4), lineWidth: 1)
+                                    .frame(width: 6, height: 6)
+                            } else {
+                                Circle()
+                                    .fill(Color.blue)
+                                    .frame(width: 6, height: 6)
+                            }
+                            Text(workout.name)
+                                .font(.title3.bold())
+                                .foregroundStyle(.white)
+                                .tracking(-0.3)
+                        }
+
+                        if !workout.sortedExercises.isEmpty {
+                            let preview = workout.sortedExercises.prefix(3).compactMap(\.exercise?.name)
+                            let overflow = workout.sortedExercises.count - preview.count
+                            let baseText = preview.joined(separator: " · ")
+                            if overflow > 0 {
+                                Text("\(baseText)  +\(overflow) more")
+                                    .font(.subheadline)
+                                    .foregroundStyle(.secondary)
+                                    .lineLimit(1)
+                            } else {
+                                Text(baseText)
+                                    .font(.subheadline)
+                                    .foregroundStyle(.secondary)
+                                    .lineLimit(1)
+                            }
+                        }
                     }
-                    Text(workout.name)
-                        .font(.title3.bold())
-                        .foregroundStyle(.white)
-                        .tracking(-0.3)
-                }
 
-                if !workout.sortedExercises.isEmpty {
-                    let preview = workout.sortedExercises.prefix(3).compactMap(\.exercise?.name)
-                    let overflow = workout.sortedExercises.count - preview.count
-                    let baseText = preview.joined(separator: " · ")
-                    if overflow > 0 {
-                        Text("\(baseText)  +\(overflow) more")
-                            .font(.subheadline)
-                            .foregroundStyle(.secondary)
-                            .lineLimit(1)
+                    Spacer()
+
+                    if isDragging {
+                        Image(systemName: "chevron.right")
+                            .font(.subheadline.bold())
+                            .foregroundStyle(Color.secondary.opacity(0.35))
                     } else {
-                        Text(baseText)
-                            .font(.subheadline)
-                            .foregroundStyle(.secondary)
-                            .lineLimit(1)
+                        ZStack {
+                            Circle()
+                                .fill(workout.plannedExercisesList.isEmpty ? Color.white.opacity(0.05) : Color.blue.opacity(0.15))
+                                .frame(width: 40, height: 40)
+                            Image(systemName: "chevron.right")
+                                .font(.subheadline.bold())
+                                .foregroundStyle(workout.plannedExercisesList.isEmpty ? Color.secondary.opacity(0.4) : Color.blue)
+                        }
                     }
                 }
+                .contentShape(Rectangle())
             }
+            .buttonStyle(.plain)
 
-            Spacer()
-
-            if isDragging {
-                Image(systemName: "line.3.horizontal")
-                    .font(.title3)
-                    .foregroundStyle(.secondary.opacity(0.6))
-            } else {
-                ZStack {
-                    Circle()
-                        .fill(workout.plannedExercisesList.isEmpty ? Color.white.opacity(0.05) : Color.blue.opacity(0.15))
-                        .frame(width: 40, height: 40)
-                    Image(systemName: "chevron.right")
-                        .font(.subheadline.bold())
-                        .foregroundStyle(workout.plannedExercisesList.isEmpty ? Color.secondary.opacity(0.4) : Color.blue)
-                }
-            }
+            dragHandle
         }
         .padding(20)
         .glassBackground()
-        .contentShape(Rectangle())
     }
 }

@@ -20,17 +20,17 @@ struct WorkoutTemplateDetailView: View {
                 if localExercises.isEmpty {
                     emptyExercisesState
                 } else {
-                    ReorderableForEach(
-                        items: $localExercises,
-                        isDragging: $isReordering,
-                        onMove: { from, to in
-                            viewModel.reorderExercises(in: workout, from: from, to: to, context: context)
+                        ReorderableForEach(
+                            items: $localExercises,
+                            isDragging: $isReordering,
+                            onMove: { from, to in
+                                viewModel.reorderExercises(in: workout, from: from, to: to, context: context)
+                            }
+                        ) { planned, isDragging, dragHandle in
+                            PlannedExerciseRow(planned: planned, isDragging: isDragging, dragHandle: dragHandle) {
+                                deletePlannedExercise(planned)
+                            }
                         }
-                    ) { planned, isDragging in
-                        PlannedExerciseRow(planned: planned, isDragging: isDragging) {
-                            deletePlannedExercise(planned)
-                        }
-                    }
                 }
 
                 PrimaryButton("Add Exercise", icon: "plus.circle") {
@@ -159,6 +159,7 @@ struct WorkoutTemplateDetailView: View {
 struct PlannedExerciseRow: View {
     @Bindable var planned: PlannedExercise
     let isDragging: Bool
+    let dragHandle: AnyView
     let onDelete: () -> Void
     @State private var showingEdit = false
     @AppStorage("weightUnit") private var weightUnit: WeightUnit = .lbs
@@ -184,30 +185,29 @@ struct PlannedExerciseRow: View {
                     }
                 }
                 Spacer()
-                if !isDragging {
-                    Menu {
-                        Button {
-                            showingEdit = true
+                HStack(spacing: 4) {
+                    if !isDragging {
+                        Menu {
+                            Button {
+                                showingEdit = true
+                            } label: {
+                                Label("Edit", systemImage: "pencil")
+                            }
+                            Button(role: .destructive) {
+                                onDelete()
+                            } label: {
+                                Label("Delete", systemImage: "trash")
+                            }
                         } label: {
-                            Label("Edit", systemImage: "pencil")
+                            Image(systemName: "ellipsis.circle")
+                                .font(.title3)
+                                .foregroundStyle(.secondary)
+                                .frame(width: 44, height: 44)
                         }
-                        Button(role: .destructive) {
-                            onDelete()
-                        } label: {
-                            Label("Delete", systemImage: "trash")
-                        }
-                    } label: {
-                        Image(systemName: "ellipsis.circle")
-                            .font(.title3)
-                            .foregroundStyle(.secondary)
-                            .frame(width: 44, height: 44)
+                        .accessibilityLabel("Exercise Options")
                     }
-                    .accessibilityLabel("Exercise Options")
-                } else {
-                    Image(systemName: "line.3.horizontal")
-                        .font(.title3)
-                        .foregroundStyle(.secondary.opacity(0.6))
-                        .accessibilityHidden(true)
+
+                    dragHandle
                 }
             }
 

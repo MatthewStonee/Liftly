@@ -15,7 +15,7 @@ struct ReorderableForEach<T: Identifiable, Content: View>: View where T.ID: Hash
     @Binding var items: [T]
     @Binding var isDragging: Bool
     let onMove: (_ from: Int, _ to: Int) -> Void
-    @ViewBuilder let content: (T, _ isDraggingThis: Bool) -> Content
+    @ViewBuilder let content: (T, _ isDraggingThis: Bool, _ dragHandle: AnyView) -> Content
 
     @State private var draggedId: T.ID? = nil
     @State private var dragOffsetY: CGFloat = 0
@@ -29,7 +29,7 @@ struct ReorderableForEach<T: Identifiable, Content: View>: View where T.ID: Hash
         VStack(spacing: 12) {
             ForEach(items) { item in
                 let isThisItemDragging = draggedId == item.id || justDropped
-                content(item, isThisItemDragging)
+                content(item, isThisItemDragging, dragHandle(for: item, isDragging: isThisItemDragging))
                     .background(frameReader(for: item))
                     .offset(y: isThisItemDragging ? dragOffsetY : 0)
                     .scaleEffect(isThisItemDragging ? 1.03 : 1.0)
@@ -42,7 +42,6 @@ struct ReorderableForEach<T: Identifiable, Content: View>: View where T.ID: Hash
                     .zIndex(isThisItemDragging ? 100 : 0)
                     .animation(.spring(response: 0.3, dampingFraction: 0.8), value: isThisItemDragging)
                     .animation(.easeInOut(duration: 0.2), value: draggedId != nil)
-                    .simultaneousGesture(reorderGesture(for: item))
             }
         }
         .coordinateSpace(name: "reorderVStack")
@@ -60,6 +59,18 @@ struct ReorderableForEach<T: Identifiable, Content: View>: View where T.ID: Hash
                 value: [item.id as AnyHashable: geo.frame(in: .named("reorderVStack"))]
             )
         }
+    }
+
+    private func dragHandle(for item: T, isDragging: Bool) -> AnyView {
+        AnyView(
+            Image(systemName: "line.3.horizontal")
+                .font(.title3.weight(.semibold))
+                .foregroundStyle(isDragging ? Color.secondary.opacity(0.6) : Color.secondary.opacity(0.85))
+                .frame(width: 44, height: 44)
+                .contentShape(Rectangle())
+                .gesture(reorderGesture(for: item))
+                .accessibilityLabel("Reorder")
+        )
     }
 
     private func reorderGesture(for item: T) -> some Gesture {
