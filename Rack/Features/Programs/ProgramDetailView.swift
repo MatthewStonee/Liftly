@@ -43,14 +43,15 @@ struct ProgramDetailView: View {
                                 viewModel.reorderWorkouts(in: program, from: from, to: to, context: context)
                             }
                         ) { workout, isDraggingThis in
-                            Button {
-                                guard !isDraggingThis else { return }
-                                selectedWorkout = workout
-                            } label: {
-                                WorkoutTemplateRow(workout: workout, isDragging: isDraggingThis)
-                            }
-                            .buttonStyle(.plain)
-                            .accessibilityLabel(workout.name)
+                            WorkoutTemplateRow(workout: workout, isDragging: isDraggingThis)
+                                .contentShape(Rectangle())
+                                .onTapGesture {
+                                    guard !isDraggingThis else { return }
+                                    selectedWorkout = workout
+                                }
+                                .accessibilityElement()
+                                .accessibilityLabel(workout.name)
+                                .accessibilityAddTraits(.isButton)
                         }
                     }
 

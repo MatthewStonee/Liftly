@@ -64,7 +64,7 @@ No tests currently. Don't invent speculative tests — if a change genuinely nee
 - Scheme: `Rack`
 - Target simulator: iPhone 17 Pro (iOS 26.x)
 - iPhone-only (no iPad, no Mac Catalyst) — layouts can assume phone-sized viewports
-- Build command: use XcodeBuildMCP tools, never raw `xcodebuild` shell commands
+- Build command: Ask if you should use XcodeBuildMCP tools, never raw `xcodebuild` shell commands
 
 ## Open To-Dos
 - Tracked in Notion: https://www.notion.so/33def31f82228136a7fbe2bb7b7262e6

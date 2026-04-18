@@ -23,7 +23,6 @@ struct ReorderableForEach<T: Identifiable, Content: View>: View where T.ID: Hash
     @State private var dragStartMidY: CGFloat = 0
     @State private var itemFrames: [AnyHashable: CGRect] = [:]
     @State private var justDropped = false
-    @State private var longPressActivated = false
     @State private var liftHapticTrigger = false
 
     var body: some View {
@@ -43,6 +42,7 @@ struct ReorderableForEach<T: Identifiable, Content: View>: View where T.ID: Hash
                     .zIndex(isThisItemDragging ? 100 : 0)
                     .animation(.spring(response: 0.3, dampingFraction: 0.8), value: isThisItemDragging)
                     .animation(.easeInOut(duration: 0.2), value: draggedId != nil)
+                    .simultaneousGesture(longPressGesture(for: item))
                     .simultaneousGesture(dragGesture(for: item))
             }
         }
@@ -63,28 +63,32 @@ struct ReorderableForEach<T: Identifiable, Content: View>: View where T.ID: Hash
         }
     }
 
-    private func dragGesture(for item: T) -> some Gesture {
+    private func longPressGesture(for item: T) -> some Gesture {
         LongPressGesture(minimumDuration: 0.4)
-            .sequenced(before: DragGesture(minimumDistance: 0))
-            .onChanged { seq in
-                switch seq {
-                case .second(true, let drag):
-                    if !longPressActivated {
-                        longPressActivated = true
-                        liftHapticTrigger.toggle()
-                    }
-                    guard let drag else { break }
-                    if draggedId == nil {
-                        draggedId = item.id
-                        dragStartIndex = items.firstIndex(where: { $0.id == item.id }) ?? 0
-                        dragStartMidY = itemFrames[item.id as AnyHashable]?.midY ?? 0
-                    }
-                    dragOffsetY = drag.translation.height
-                default:
-                    break
-                }
+            .onEnded { _ in
+                beginDrag(for: item)
             }
-            .onEnded { _ in commitDrop() }
+    }
+
+    private func dragGesture(for item: T) -> some Gesture {
+        DragGesture(minimumDistance: 10)
+            .onChanged { drag in
+                guard draggedId == item.id else { return }
+                dragOffsetY = drag.translation.height
+            }
+            .onEnded { _ in
+                guard draggedId == item.id else { return }
+                commitDrop()
+            }
+    }
+
+    private func beginDrag(for item: T) {
+        guard draggedId == nil else { return }
+        draggedId = item.id
+        dragStartIndex = items.firstIndex(where: { $0.id == item.id }) ?? 0
+        dragStartMidY = itemFrames[item.id as AnyHashable]?.midY ?? 0
+        dragOffsetY = 0
+        liftHapticTrigger.toggle()
     }
 
     private func commitDrop() {
@@ -93,7 +97,6 @@ struct ReorderableForEach<T: Identifiable, Content: View>: View where T.ID: Hash
             return
         }
 
-        longPressActivated = false
         // Briefly suppress hit-testing so the NavigationLink doesn't fire on finger lift
         justDropped = true
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
@@ -131,7 +134,6 @@ struct ReorderableForEach<T: Identifiable, Content: View>: View where T.ID: Hash
     }
 
     private func resetDrag() {
-        longPressActivated = false
         withAnimation(.spring(response: 0.25)) {
             dragOffsetY = 0
         }

@@ -8,6 +8,7 @@ struct ProgressTabView: View {
     @Query(sort: \Exercise.name) private var exercises: [Exercise]
     @Query private var plannedExercises: [PlannedExercise]
     @State private var viewModel = ProgressViewModel()
+    @State private var selectedExercise: Exercise?
     @AppStorage("weightUnit") private var weightUnit: WeightUnit = .lbs
 
     private var programExercises: [Exercise] {
@@ -39,7 +40,7 @@ struct ProgressTabView: View {
             .background { backgroundGradient }
             .navigationTitle("Progress")
             .titleDisplayMode(.large)
-            .navigationDestination(for: Exercise.self) { exercise in
+            .navigationDestination(item: $selectedExercise) { exercise in
                 ExerciseProgressView(exercise: exercise)
             }
             .onAppear { viewModel.backfillPersonalRecords(exercises: exercises) }
@@ -87,11 +88,14 @@ struct ProgressTabView: View {
                 weeklyVolumeCard
 
                 ForEach(programExercises) { exercise in
-                    NavigationLink(value: exercise) {
-                        ExerciseProgressRow(exercise: exercise)
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel(exercise.name)
+                    ExerciseProgressRow(exercise: exercise)
+                        .contentShape(Rectangle())
+                        .onTapGesture {
+                            selectedExercise = exercise
+                        }
+                        .accessibilityElement()
+                        .accessibilityLabel(exercise.name)
+                        .accessibilityAddTraits(.isButton)
                 }
             }
             .padding(.horizontal, 16)

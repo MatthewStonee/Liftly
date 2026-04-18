@@ -9,6 +9,7 @@ struct ProgramsView: View {
     @State private var showingSettings = false
     @State private var pendingDeleteProgram: Program?
     @State private var deleteTask: Task<Void, Never>?
+    @State private var selectedProgram: Program?
 
     private var visiblePrograms: [Program] {
         programs.filter { $0.id != pendingDeleteProgram?.id }
@@ -29,7 +30,7 @@ struct ProgramsView: View {
             .background { backgroundGradient }
             .navigationTitle("Programs")
             .titleDisplayMode(.large)
-            .navigationDestination(for: Program.self) { program in
+            .navigationDestination(item: $selectedProgram) { program in
                 ProgramDetailView(program: program, onDeleteProgram: {
                     pendingDeleteProgram = program
                     deleteTask = Task {
@@ -117,13 +118,15 @@ struct ProgramsView: View {
 
                         VStack(spacing: 10) {
                             ForEach(activeProgram == nil ? programs : otherPrograms) { program in
-                                NavigationLink(value: program) {
-                                    ProgramRow(program: program) {
-                                        viewModel.setActive(program, allPrograms: programs, context: context)
-                                    }
+                                ProgramRow(program: program) {
+                                    viewModel.setActive(program, allPrograms: programs, context: context)
                                 }
-                                .buttonStyle(.plain)
+                                .contentShape(Rectangle())
+                                .onTapGesture {
+                                    selectedProgram = program
+                                }
                                 .accessibilityLabel(program.name)
+                                .accessibilityAddTraits(.isButton)
                                 .padding(.horizontal, 16)
                             }
                         }
@@ -137,54 +140,56 @@ struct ProgramsView: View {
 
     @ViewBuilder
     private func activeProgramHero(_ program: Program) -> some View {
-        NavigationLink(value: program) {
-            ZStack(alignment: .bottomLeading) {
-                RoundedRectangle(cornerRadius: 20)
-                    .fill(Color(red: 0.08, green: 0.10, blue: 0.22))
-                    .overlay(
-                        LinearGradient(
-                            colors: [.blue.opacity(0.18), .clear],
-                            startPoint: .topLeading,
-                            endPoint: .bottomTrailing
-                        )
-                        .clipShape(RoundedRectangle(cornerRadius: 20))
+        ZStack(alignment: .bottomLeading) {
+            RoundedRectangle(cornerRadius: 20)
+                .fill(Color(red: 0.08, green: 0.10, blue: 0.22))
+                .overlay(
+                    LinearGradient(
+                        colors: [.blue.opacity(0.18), .clear],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
                     )
+                    .clipShape(RoundedRectangle(cornerRadius: 20))
+                )
 
-                VStack(alignment: .leading, spacing: 14) {
-                    Text("CURRENTLY ACTIVE")
-                        .font(.caption2.bold())
-                        .tracking(1.5)
-                        .foregroundStyle(.blue)
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 5)
-                        .background(.blue.opacity(0.18), in: Capsule())
-                        .overlay(Capsule().strokeBorder(.blue.opacity(0.35), lineWidth: 0.5))
+            VStack(alignment: .leading, spacing: 14) {
+                Text("CURRENTLY ACTIVE")
+                    .font(.caption2.bold())
+                    .tracking(1.5)
+                    .foregroundStyle(.blue)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 5)
+                    .background(.blue.opacity(0.18), in: Capsule())
+                    .overlay(Capsule().strokeBorder(.blue.opacity(0.35), lineWidth: 0.5))
 
-                    Text(program.name)
-                        .font(.system(size: 32, weight: .black))
-                        .foregroundStyle(.white)
-                        .tracking(-0.5)
-                        .lineLimit(2)
+                Text(program.name)
+                    .font(.system(size: 32, weight: .black))
+                    .foregroundStyle(.white)
+                    .tracking(-0.5)
+                    .lineLimit(2)
 
-                    HStack(spacing: 12) {
-                        StatBadge(
-                            value: "\(program.workoutsList.count)",
-                            label: "Workouts",
-                            style: .hero
-                        )
-                        StatBadge(
-                            value: "\(program.exerciseCount)",
-                            label: "Exercises",
-                            style: .hero
-                        )
-                    }
+                HStack(spacing: 12) {
+                    StatBadge(
+                        value: "\(program.workoutsList.count)",
+                        label: "Workouts",
+                        style: .hero
+                    )
+                    StatBadge(
+                        value: "\(program.exerciseCount)",
+                        label: "Exercises",
+                        style: .hero
+                    )
                 }
-                .padding(24)
             }
-            .frame(maxWidth: .infinity, minHeight: 200)
+            .padding(24)
         }
-        .buttonStyle(.plain)
+        .frame(maxWidth: .infinity, minHeight: 200)
+        .contentShape(Rectangle())
+        .onTapGesture {
+            selectedProgram = program
+        }
         .accessibilityLabel(program.name)
+        .accessibilityAddTraits(.isButton)
         .padding(.horizontal, 16)
     }
 
