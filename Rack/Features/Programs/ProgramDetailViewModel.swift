@@ -1,19 +1,22 @@
+import Foundation
 import SwiftData
 
 @Observable
 final class ProgramDetailViewModel {
     func reorderWorkouts(
         in program: Program,
-        from source: Int,
-        to destination: Int,
+        orderedIDs: [UUID],
         context: ModelContext
     ) {
-        var workouts = program.sortedWorkouts
-        let item = workouts.remove(at: source)
-        workouts.insert(item, at: destination)
-        for (index, workout) in workouts.enumerated() {
+        let orderLookup = Dictionary(uniqueKeysWithValues: orderedIDs.enumerated().map { index, id in
+            (id, index)
+        })
+
+        for workout in program.workoutsList {
+            guard let index = orderLookup[workout.id] else { continue }
             workout.orderIndex = index
         }
+
         try? context.save()
     }
 }
