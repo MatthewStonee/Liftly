@@ -16,7 +16,7 @@ struct ProgramDetailView: View {
     @FocusState private var workoutNameFocused: Bool
     @State private var viewModel = ProgramDetailViewModel()
     @State private var localWorkouts: [WorkoutTemplate] = []
-    @State private var isReordering = false
+    @State private var isReorderMode = false
     @State private var selectedWorkout: WorkoutTemplate?
 
     private var gradient: some View {
@@ -25,6 +25,18 @@ struct ProgramDetailView: View {
             startPoint: .top, endPoint: .bottom
         )
         .ignoresSafeArea()
+    }
+
+    private var visibleWorkouts: [WorkoutTemplate] {
+        program.sortedWorkouts.filter { $0.id != pendingDeleteWorkout?.id }
+    }
+
+    private var visibleWorkoutIDs: [UUID] {
+        visibleWorkouts.map(\.id)
+    }
+
+    private var canToggleReorderMode: Bool {
+        pendingDeleteWorkout == nil && !showingAddWorkout && visibleWorkouts.count > 1
     }
 
     var body: some View {
@@ -38,17 +50,17 @@ struct ProgramDetailView: View {
                     } else {
                         ReorderableForEach(
                             items: $localWorkouts,
-                            isDragging: $isReordering,
-                            onMove: { from, to in
-                                viewModel.reorderWorkouts(in: program, from: from, to: to, context: context)
+                            isEnabled: isReorderMode,
+                            onCommitOrder: { orderedIDs in
+                                viewModel.reorderWorkouts(in: program, orderedIDs: orderedIDs, context: context)
                             }
-                        ) { workout, isDraggingThis, dragHandle in
+                        ) { workout, dragHandle in
                             WorkoutTemplateRow(
                                 workout: workout,
-                                isDragging: isDraggingThis,
+                                isReorderMode: isReorderMode,
                                 dragHandle: dragHandle,
                                 onTap: {
-                                    guard !isDraggingThis else { return }
+                                    guard !isReorderMode else { return }
                                     selectedWorkout = workout
                                 }
                             )
@@ -62,13 +74,14 @@ struct ProgramDetailView: View {
                         newWorkoutName = ""
                         showingAddWorkout = true
                     }
+                    .disabled(isReorderMode)
+                    .opacity(isReorderMode ? 0.45 : 1.0)
                     .padding(.top, 4)
                 }
                 .padding(.horizontal, 16)
                 .padding(.top, 8)
                 .padding(.bottom, 32)
             }
-            .scrollDisabled(isReordering)
             .allowsHitTesting(!showingAddWorkout)
 
             if showingAddWorkout {
@@ -80,6 +93,7 @@ struct ProgramDetailView: View {
         .titleDisplayMode(.inline)
         .navigationDestination(item: $selectedWorkout) { workout in
             WorkoutTemplateDetailView(workout: workout, onDeleteWorkout: {
+                exitReorderMode()
                 localWorkouts.removeAll { $0.id == workout.id }
                 pendingDeleteWorkout = workout
                 workoutDeleteTask = Task {
@@ -100,26 +114,44 @@ struct ProgramDetailView: View {
         }
         .background { gradient }
         .toolbar {
-            ToolbarItem(placement: .primaryAction) {
+            ToolbarItemGroup(placement: .topBarTrailing) {
+                if isReorderMode {
+                    Button("Done") {
+                        toggleReorderMode()
+                    }
+                    .accessibilityLabel("Done Reordering")
+                }
+
                 Menu {
-                    if !program.isActive {
+                    if visibleWorkouts.count > 1 && !isReorderMode {
                         Button {
-                            for p in allPrograms { p.isActive = false }
-                            program.isActive = true
-                            try? context.save()
+                            toggleReorderMode()
                         } label: {
-                            Label("Set as Active", systemImage: "checkmark.circle")
+                            Label("Reorder", systemImage: "arrow.up.arrow.down")
                         }
+                        .disabled(!canToggleReorderMode)
                     }
-                    Button {
-                        showingEditProgram = true
-                    } label: {
-                        Label("Edit Program", systemImage: "pencil")
-                    }
-                    Button(role: .destructive) {
-                        deleteProgram()
-                    } label: {
-                        Label("Delete Program", systemImage: "trash")
+
+                    if !isReorderMode {
+                        if !program.isActive {
+                            Button {
+                                for p in allPrograms { p.isActive = false }
+                                program.isActive = true
+                                try? context.save()
+                            } label: {
+                                Label("Set as Active", systemImage: "checkmark.circle")
+                            }
+                        }
+                        Button {
+                            showingEditProgram = true
+                        } label: {
+                            Label("Edit Program", systemImage: "pencil")
+                        }
+                        Button(role: .destructive) {
+                            deleteProgram()
+                        } label: {
+                            Label("Delete Program", systemImage: "trash")
+                        }
                     }
                 } label: {
                     Image(systemName: "ellipsis.circle")
@@ -131,8 +163,11 @@ struct ProgramDetailView: View {
         .sheet(isPresented: $showingEditProgram) {
             CreateProgramView(existingProgram: program)
         }
-        .onAppear { localWorkouts = program.sortedWorkouts.filter { $0.id != pendingDeleteWorkout?.id } }
-        .onChange(of: program.workouts?.count ?? 0) { localWorkouts = program.sortedWorkouts.filter { $0.id != pendingDeleteWorkout?.id } }
+        .onAppear { syncLocalWorkouts() }
+        .onChange(of: visibleWorkoutIDs) { _, _ in
+            guard !isReorderMode else { return }
+            syncLocalWorkouts()
+        }
         .undoToast(
             isPresented: Binding(
                 get: { pendingDeleteWorkout != nil },
@@ -143,7 +178,7 @@ struct ProgramDetailView: View {
                 workoutDeleteTask?.cancel()
                 workoutDeleteTask = nil
                 pendingDeleteWorkout = nil
-                localWorkouts = program.sortedWorkouts
+                syncLocalWorkouts()
             }
         )
     }
@@ -269,77 +304,104 @@ struct ProgramDetailView: View {
         try? context.save()
         newWorkoutName = ""
     }
+
+    private func toggleReorderMode() {
+        isReorderMode ? exitReorderMode() : enterReorderMode()
+    }
+
+    private func enterReorderMode() {
+        guard canToggleReorderMode else { return }
+        syncLocalWorkouts()
+        isReorderMode = true
+    }
+
+    private func exitReorderMode() {
+        isReorderMode = false
+        syncLocalWorkouts()
+    }
+
+    private func syncLocalWorkouts() {
+        localWorkouts = visibleWorkouts
+    }
 }
 
 struct WorkoutTemplateRow: View {
     let workout: WorkoutTemplate
-    let isDragging: Bool
-    let dragHandle: AnyView
+    let isReorderMode: Bool
+    let dragHandle: ReorderDragHandle
     let onTap: () -> Void
 
     var body: some View {
         HStack(spacing: 16) {
-            Button(action: onTap) {
-                HStack(spacing: 16) {
-                    VStack(alignment: .leading, spacing: 8) {
-                        HStack(spacing: 6) {
-                            if workout.plannedExercisesList.isEmpty {
-                                Circle()
-                                    .stroke(Color.secondary.opacity(0.4), lineWidth: 1)
-                                    .frame(width: 6, height: 6)
-                            } else {
-                                Circle()
-                                    .fill(Color.blue)
-                                    .frame(width: 6, height: 6)
-                            }
-                            Text(workout.name)
-                                .font(.title3.bold())
-                                .foregroundStyle(.white)
-                                .tracking(-0.3)
-                        }
-
-                        if !workout.sortedExercises.isEmpty {
-                            let preview = workout.sortedExercises.prefix(3).compactMap(\.exercise?.name)
-                            let overflow = workout.sortedExercises.count - preview.count
-                            let baseText = preview.joined(separator: " · ")
-                            if overflow > 0 {
-                                Text("\(baseText)  +\(overflow) more")
-                                    .font(.subheadline)
-                                    .foregroundStyle(.secondary)
-                                    .lineLimit(1)
-                            } else {
-                                Text(baseText)
-                                    .font(.subheadline)
-                                    .foregroundStyle(.secondary)
-                                    .lineLimit(1)
-                            }
-                        }
-                    }
-
-                    Spacer()
-
-                    if isDragging {
-                        Image(systemName: "chevron.right")
-                            .font(.subheadline.bold())
-                            .foregroundStyle(Color.secondary.opacity(0.35))
-                    } else {
-                        ZStack {
-                            Circle()
-                                .fill(workout.plannedExercisesList.isEmpty ? Color.white.opacity(0.05) : Color.blue.opacity(0.15))
-                                .frame(width: 40, height: 40)
-                            Image(systemName: "chevron.right")
-                                .font(.subheadline.bold())
-                                .foregroundStyle(workout.plannedExercisesList.isEmpty ? Color.secondary.opacity(0.4) : Color.blue)
-                        }
-                    }
+            if isReorderMode {
+                rowContent
+            } else {
+                Button(action: onTap) {
+                    rowContent
                 }
-                .contentShape(Rectangle())
+                .buttonStyle(.plain)
             }
-            .buttonStyle(.plain)
 
-            dragHandle
+            if isReorderMode {
+                dragHandle
+            }
         }
         .padding(20)
         .glassBackground()
+    }
+
+    private var rowContent: some View {
+        HStack(spacing: 16) {
+            VStack(alignment: .leading, spacing: 8) {
+                HStack(spacing: 6) {
+                    if workout.plannedExercisesList.isEmpty {
+                        Circle()
+                            .stroke(Color.secondary.opacity(0.4), lineWidth: 1)
+                            .frame(width: 6, height: 6)
+                    } else {
+                        Circle()
+                            .fill(Color.blue)
+                            .frame(width: 6, height: 6)
+                    }
+                    Text(workout.name)
+                        .font(.title3.bold())
+                        .foregroundStyle(.white)
+                        .tracking(-0.3)
+                }
+
+                if !workout.sortedExercises.isEmpty {
+                    let preview = workout.sortedExercises.prefix(3).compactMap(\.exercise?.name)
+                    let overflow = workout.sortedExercises.count - preview.count
+                    let baseText = preview.joined(separator: " · ")
+                    if overflow > 0 {
+                        Text("\(baseText)  +\(overflow) more")
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                    } else {
+                        Text(baseText)
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                    }
+                }
+            }
+
+            Spacer()
+
+            ZStack {
+                Circle()
+                    .fill(workout.plannedExercisesList.isEmpty ? Color.white.opacity(0.05) : Color.blue.opacity(isReorderMode ? 0.08 : 0.15))
+                    .frame(width: 40, height: 40)
+                Image(systemName: "chevron.right")
+                    .font(.subheadline.bold())
+                    .foregroundStyle(
+                        workout.plannedExercisesList.isEmpty
+                        ? Color.secondary.opacity(isReorderMode ? 0.22 : 0.4)
+                        : Color.blue.opacity(isReorderMode ? 0.55 : 1.0)
+                    )
+            }
+        }
+        .contentShape(Rectangle())
     }
 }

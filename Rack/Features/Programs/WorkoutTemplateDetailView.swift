@@ -6,13 +6,26 @@ struct WorkoutTemplateDetailView: View {
     @Environment(\.dismiss) private var dismiss
     @Bindable var workout: WorkoutTemplate
     var onDeleteWorkout: (() -> Void)?
+    @AppStorage("plannedRepTargetDefault") private var plannedRepTargetDefault: PlannedRepTargetType = .exact
     @State private var showingExercisePicker = false
     @State private var showingRenameSheet = false
     @State private var viewModel = WorkoutTemplateDetailViewModel()
     @State private var localExercises: [PlannedExercise] = []
-    @State private var isReordering = false
+    @State private var isReorderMode = false
     @State private var pendingDeleteExercise: PlannedExercise?
     @State private var exerciseDeleteTask: Task<Void, Never>?
+
+    private var visibleExercises: [PlannedExercise] {
+        workout.sortedExercises.filter { $0.id != pendingDeleteExercise?.id }
+    }
+
+    private var visibleExerciseIDs: [UUID] {
+        visibleExercises.map(\.id)
+    }
+
+    private var canToggleReorderMode: Bool {
+        pendingDeleteExercise == nil && !showingExercisePicker && visibleExercises.count > 1
+    }
 
     var body: some View {
         ScrollView {
@@ -20,29 +33,34 @@ struct WorkoutTemplateDetailView: View {
                 if localExercises.isEmpty {
                     emptyExercisesState
                 } else {
-                        ReorderableForEach(
-                            items: $localExercises,
-                            isDragging: $isReordering,
-                            onMove: { from, to in
-                                viewModel.reorderExercises(in: workout, from: from, to: to, context: context)
-                            }
-                        ) { planned, isDragging, dragHandle in
-                            PlannedExerciseRow(planned: planned, isDragging: isDragging, dragHandle: dragHandle) {
+                    ReorderableForEach(
+                        items: $localExercises,
+                        isEnabled: isReorderMode,
+                        onCommitOrder: { orderedIDs in
+                            viewModel.reorderExercises(in: workout, orderedIDs: orderedIDs, context: context)
+                        }
+                    ) { planned, dragHandle in
+                        PlannedExerciseRow(
+                            planned: planned,
+                            isReorderMode: isReorderMode,
+                            dragHandle: dragHandle
+                        ) {
                                 deletePlannedExercise(planned)
                             }
-                        }
+                    }
                 }
 
                 PrimaryButton("Add Exercise", icon: "plus.circle") {
                     showingExercisePicker = true
                 }
+                .disabled(isReorderMode)
+                .opacity(isReorderMode ? 0.45 : 1.0)
                 .padding(.top, 4)
             }
             .padding(.horizontal, 16)
             .padding(.top, 8)
             .padding(.bottom, 32)
         }
-        .scrollDisabled(isReordering)
         .navigationTitle(workout.name)
         .titleDisplayMode(.large)
         .background {
@@ -53,17 +71,35 @@ struct WorkoutTemplateDetailView: View {
             .ignoresSafeArea()
         }
         .toolbar {
-            ToolbarItem(placement: .primaryAction) {
-                Menu {
-                    Button {
-                        showingRenameSheet = true
-                    } label: {
-                        Label("Rename", systemImage: "pencil")
+            ToolbarItemGroup(placement: .topBarTrailing) {
+                if isReorderMode {
+                    Button("Done") {
+                        toggleReorderMode()
                     }
-                    Button(role: .destructive) {
-                        deleteWorkout()
-                    } label: {
-                        Label("Delete Workout Day", systemImage: "trash")
+                    .accessibilityLabel("Done Reordering")
+                }
+
+                Menu {
+                    if visibleExercises.count > 1 && !isReorderMode {
+                        Button {
+                            toggleReorderMode()
+                        } label: {
+                            Label("Reorder", systemImage: "arrow.up.arrow.down")
+                        }
+                        .disabled(!canToggleReorderMode)
+                    }
+
+                    if !isReorderMode {
+                        Button {
+                            showingRenameSheet = true
+                        } label: {
+                            Label("Rename", systemImage: "pencil")
+                        }
+                        Button(role: .destructive) {
+                            deleteWorkout()
+                        } label: {
+                            Label("Delete Workout Day", systemImage: "trash")
+                        }
                     }
                 } label: {
                     Image(systemName: "ellipsis.circle")
@@ -80,8 +116,11 @@ struct WorkoutTemplateDetailView: View {
                 addExercise(exercise)
             }
         }
-        .onAppear { localExercises = workout.sortedExercises.filter { $0.id != pendingDeleteExercise?.id } }
-        .onChange(of: workout.plannedExercises?.count ?? 0) { localExercises = workout.sortedExercises.filter { $0.id != pendingDeleteExercise?.id } }
+        .onAppear { syncLocalExercises() }
+        .onChange(of: visibleExerciseIDs) { _, _ in
+            guard !isReorderMode else { return }
+            syncLocalExercises()
+        }
         .undoToast(
             isPresented: Binding(
                 get: { pendingDeleteExercise != nil },
@@ -92,7 +131,7 @@ struct WorkoutTemplateDetailView: View {
                 exerciseDeleteTask?.cancel()
                 exerciseDeleteTask = nil
                 pendingDeleteExercise = nil
-                localExercises = workout.sortedExercises
+                syncLocalExercises()
             }
         )
     }
@@ -120,7 +159,10 @@ struct WorkoutTemplateDetailView: View {
         let planned = PlannedExercise(
             exercise: exercise,
             sets: 3,
-            reps: 8,
+            reps: PlannedRepTargetDefaults.exactReps,
+            repTargetType: plannedRepTargetDefault,
+            repRangeLowerBound: PlannedRepTargetDefaults.rangeLowerBound,
+            repRangeUpperBound: PlannedRepTargetDefaults.rangeUpperBound,
             orderIndex: workout.plannedExercisesList.count
         )
         planned.workoutTemplate = workout
@@ -133,6 +175,7 @@ struct WorkoutTemplateDetailView: View {
     }
 
     private func deletePlannedExercise(_ planned: PlannedExercise) {
+        exitReorderMode()
         exerciseDeleteTask?.cancel()
         localExercises.removeAll { $0.id == planned.id }
         pendingDeleteExercise = planned
@@ -151,15 +194,35 @@ struct WorkoutTemplateDetailView: View {
     }
 
     private func deleteWorkout() {
+        exitReorderMode()
         onDeleteWorkout?()
         dismiss()
+    }
+
+    private func toggleReorderMode() {
+        isReorderMode ? exitReorderMode() : enterReorderMode()
+    }
+
+    private func enterReorderMode() {
+        guard canToggleReorderMode else { return }
+        syncLocalExercises()
+        isReorderMode = true
+    }
+
+    private func exitReorderMode() {
+        isReorderMode = false
+        syncLocalExercises()
+    }
+
+    private func syncLocalExercises() {
+        localExercises = visibleExercises
     }
 }
 
 struct PlannedExerciseRow: View {
     @Bindable var planned: PlannedExercise
-    let isDragging: Bool
-    let dragHandle: AnyView
+    let isReorderMode: Bool
+    let dragHandle: ReorderDragHandle
     let onDelete: () -> Void
     @State private var showingEdit = false
     @AppStorage("weightUnit") private var weightUnit: WeightUnit = .lbs
@@ -186,7 +249,7 @@ struct PlannedExerciseRow: View {
                 }
                 Spacer()
                 HStack(spacing: 4) {
-                    if !isDragging {
+                    if !isReorderMode {
                         Menu {
                             Button {
                                 showingEdit = true
@@ -207,13 +270,15 @@ struct PlannedExerciseRow: View {
                         .accessibilityLabel("Exercise Options")
                     }
 
-                    dragHandle
+                    if isReorderMode {
+                        dragHandle
+                    }
                 }
             }
 
             HStack(spacing: 8) {
                 SetRepsBadge(value: "\(planned.sets)", label: "sets")
-                SetRepsBadge(value: "\(planned.reps)", label: "reps")
+                SetRepsBadge(value: planned.formattedRepTarget, label: "target")
                 if let weight = planned.targetWeight {
                     SetRepsBadge(value: weight.formattedWeight(unit: weightUnit), label: weightUnit.symbol)
                 }
@@ -296,7 +361,10 @@ struct EditPlannedExerciseView: View {
     @Bindable var planned: PlannedExercise
 
     @State private var sets: Int = 3
-    @State private var reps: Int = 8
+    @State private var repTargetType: PlannedRepTargetType = .exact
+    @State private var exactReps: Int = PlannedRepTargetDefaults.exactReps
+    @State private var rangeLowerBound: Int = PlannedRepTargetDefaults.rangeLowerBound
+    @State private var rangeUpperBound: Int = PlannedRepTargetDefaults.rangeUpperBound
     @State private var weight: String = ""
     @AppStorage("weightUnit") private var weightUnit: WeightUnit = .lbs
 
@@ -318,7 +386,14 @@ struct EditPlannedExerciseView: View {
                         VStack(spacing: 16) {
                             Stepper("Sets: \(sets)", value: $sets, in: 1...20)
                             Divider().background(.white.opacity(0.1))
-                            Stepper("Reps: \(reps)", value: $reps, in: 1...100)
+                            Picker("Rep Target", selection: $repTargetType) {
+                                ForEach(PlannedRepTargetType.allCases, id: \.self) { type in
+                                    Text(type.title).tag(type)
+                                }
+                            }
+                            .pickerStyle(.segmented)
+
+                            repTargetEditor
                         }
                     }
 
@@ -347,17 +422,75 @@ struct EditPlannedExerciseView: View {
             }
             .onAppear {
                 sets = planned.sets
-                reps = planned.reps
+                repTargetType = planned.repTargetType
+                exactReps = planned.exactRepTarget
+                let repRange = planned.repRange
+                rangeLowerBound = repRange.lowerBound
+                rangeUpperBound = repRange.upperBound
                 if let w = planned.targetWeight {
                     weight = w.formattedWeight(unit: weightUnit)
                 }
             }
+            .onChange(of: repTargetType) { _, newValue in
+                normalizeDraftRepTarget(for: newValue)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var repTargetEditor: some View {
+        switch repTargetType {
+        case .exact:
+            Stepper("Reps: \(exactReps)", value: $exactReps, in: 1...100)
+        case .range:
+            VStack(spacing: 16) {
+                Stepper("Lower Reps: \(rangeLowerBound)", value: $rangeLowerBound, in: 1...rangeUpperBound)
+                Divider().background(.white.opacity(0.1))
+                Stepper("Upper Reps: \(rangeUpperBound)", value: $rangeUpperBound, in: rangeLowerBound...100)
+            }
+        case .failure:
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Target")
+                    .font(.subheadline.bold())
+                    .foregroundStyle(.secondary)
+                Text("This exercise will be programmed to failure.")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+        }
+    }
+
+    private func normalizeDraftRepTarget(for type: PlannedRepTargetType) {
+        exactReps = max(1, exactReps)
+        rangeLowerBound = max(1, rangeLowerBound)
+        rangeUpperBound = max(rangeLowerBound, rangeUpperBound)
+
+        switch type {
+        case .exact:
+            if exactReps < 1 {
+                exactReps = PlannedRepTargetDefaults.exactReps
+            }
+        case .range:
+            if rangeLowerBound < 1 {
+                rangeLowerBound = PlannedRepTargetDefaults.rangeLowerBound
+            }
+            if rangeUpperBound < rangeLowerBound {
+                rangeUpperBound = max(rangeLowerBound, PlannedRepTargetDefaults.rangeUpperBound)
+            }
+        case .failure:
+            break
         }
     }
 
     private func save() {
         planned.sets = sets
-        planned.reps = reps
+        planned.configureRepTarget(
+            repTargetType,
+            exactReps: exactReps,
+            rangeLowerBound: rangeLowerBound,
+            rangeUpperBound: rangeUpperBound
+        )
         planned.targetWeight = Double(weight).map { weightUnit.store($0) }
         try? context.save()
         dismiss()
