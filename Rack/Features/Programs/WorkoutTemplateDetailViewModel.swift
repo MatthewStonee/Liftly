@@ -16,7 +16,5 @@ final class WorkoutTemplateDetailViewModel {
             guard let index = orderLookup[exercise.id] else { continue }
             exercise.orderIndex = index
         }
-
-        try? context.save()
     }
 }

@@ -5,7 +5,6 @@ import Charts
 // MARK: - Progress Tab
 
 struct ProgressTabView: View {
-    @Query(sort: \Exercise.name) private var exercises: [Exercise]
     @Query private var plannedExercises: [PlannedExercise]
     @Query(sort: \LoggedSet.completedAt, order: .reverse) private var loggedSets: [LoggedSet]
     @State private var viewModel = ProgressViewModel()
@@ -13,8 +12,9 @@ struct ProgressTabView: View {
     @AppStorage("weightUnit") private var weightUnit: WeightUnit = .lbs
 
     private var overviewDataToken: [String] {
-        exercises.map { "exercise:\($0.id):\($0.name)" } +
-        plannedExercises.map { "planned:\($0.id):\($0.exercise?.id.uuidString ?? "nil")" } +
+        plannedExercises.map {
+            "planned:\($0.id):\($0.exercise?.id.uuidString ?? "nil"):\($0.exercise?.name ?? "nil")"
+        } +
         loggedSets.map {
             "set:\($0.id):\($0.exercise?.id.uuidString ?? "nil"):\($0.reps):\($0.weight):\($0.completedAt.timeIntervalSinceReferenceDate):\($0.isPersonalRecord)"
         }
@@ -43,7 +43,6 @@ struct ProgressTabView: View {
 
     private func refreshOverview() {
         viewModel.refreshOverview(
-            exercises: exercises,
             plannedExercises: plannedExercises,
             loggedSets: loggedSets
         )
@@ -288,7 +287,11 @@ struct ExerciseProgressView: View {
             .padding(.bottom, 12)
         }
         .sheet(isPresented: $showingQuickLog) {
-            QuickLogSheet(exercise: exercise, viewModel: viewModel)
+            QuickLogSheet(
+                exercise: exercise,
+                viewModel: viewModel,
+                latestSet: viewModel.exerciseMetrics.sortedSetsDescending.first
+            )
         }
         .sheet(item: $setToEdit) { set in
             EditLoggedSetSheet(set: set, viewModel: viewModel)
@@ -429,7 +432,6 @@ struct ExerciseProgressView: View {
                         .frame(height: 200)
                     }
                 }
-                .id(viewModel.timeRange)
                 .transition(.opacity.combined(with: .scale(scale: 0.97, anchor: .top)))
             }
         }
@@ -487,7 +489,6 @@ struct ExerciseProgressView: View {
                     }
                 }
                 }
-                .id(viewModel.timeRange)
                 .transition(.opacity.combined(with: .scale(scale: 0.98, anchor: .top)))
             }
         }
@@ -502,6 +503,7 @@ struct QuickLogSheet: View {
 
     let exercise: Exercise
     let viewModel: ProgressViewModel
+    let latestSet: LoggedSet?
 
     @State private var weightText: String = ""
     @State private var reps: Int = 5
@@ -623,8 +625,7 @@ struct QuickLogSheet: View {
     }
 
     private func prefill() {
-        let sorted = exercise.loggedSetsList.sorted { $0.completedAt > $1.completedAt }
-        if let last = sorted.first {
+        if let last = latestSet {
             if last.weight > 0 {
                 weightText = last.weight.formattedWeight(unit: weightUnit)
             }

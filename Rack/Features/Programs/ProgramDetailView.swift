@@ -100,7 +100,6 @@ struct ProgramDetailView: View {
                             program.workouts = workouts
                         }
                         context.delete(workout)
-                        try? context.save()
                         pendingDeleteWorkout = nil
                     }
                 }
@@ -131,7 +130,6 @@ struct ProgramDetailView: View {
                             Button {
                                 for p in allPrograms { p.isActive = false }
                                 program.isActive = true
-                                try? context.save()
                             } label: {
                                 Label("Set as Active", systemImage: "checkmark.circle")
                             }
@@ -289,7 +287,6 @@ struct ProgramDetailView: View {
         workouts.append(workout)
         program.workouts = workouts
         context.insert(workout)
-        try? context.save()
         newWorkoutName = ""
     }
 

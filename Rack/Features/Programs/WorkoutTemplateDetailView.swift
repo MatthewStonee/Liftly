@@ -159,7 +159,6 @@ struct WorkoutTemplateDetailView: View {
         plannedExercises.append(planned)
         workout.plannedExercises = plannedExercises
         context.insert(planned)
-        try? context.save()
     }
 
     private func deletePlannedExercise(_ planned: PlannedExercise) {
@@ -174,7 +173,6 @@ struct WorkoutTemplateDetailView: View {
                 plannedExercises.removeAll { $0.id == planned.id }
                 workout.plannedExercises = plannedExercises
                 context.delete(planned)
-                try? context.save()
                 pendingDeleteExercise = nil
             }
         }
@@ -331,7 +329,6 @@ struct RenameWorkoutDaySheet: View {
         let trimmed = name.trimmingCharacters(in: .whitespaces)
         guard !trimmed.isEmpty else { return }
         workout.name = trimmed
-        try? context.save()
         dismiss()
     }
 }
@@ -473,7 +470,6 @@ struct EditPlannedExerciseView: View {
             rangeUpperBound: rangeUpperBound
         )
         planned.targetWeight = Double(weight).map { weightUnit.store($0) }
-        try? context.save()
         dismiss()
     }
 }

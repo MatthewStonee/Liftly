@@ -16,7 +16,5 @@ final class ProgramDetailViewModel {
             guard let index = orderLookup[workout.id] else { continue }
             workout.orderIndex = index
         }
-
-        try? context.save()
     }
 }

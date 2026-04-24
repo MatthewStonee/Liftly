@@ -13,6 +13,8 @@ struct ProgressOverview {
 }
 
 struct ExerciseProgressMetrics {
+    var sortedSetsAscending: [LoggedSet] = []
+    var sortedSetsDescending: [LoggedSet] = []
     var chartPoints: [(Date, Double)] = []
     var personalRecord: LoggedSet?
     var totalVolume: Double = 0
@@ -70,13 +72,17 @@ final class ProgressViewModel {
     }
 
     func refreshOverview(
-        exercises: [Exercise],
         plannedExercises: [PlannedExercise],
         loggedSets: [LoggedSet],
         now: Date = Date()
     ) {
-        let usedIDs = Set(plannedExercises.compactMap { $0.exercise?.id })
-        let programExercises = exercises.filter { usedIDs.contains($0.id) }
+        let programExercises = plannedExercises
+            .compactMap(\.exercise)
+            .reduce(into: [UUID: Exercise]()) { exercisesByID, exercise in
+                exercisesByID[exercise.id] = exercise
+            }
+            .values
+            .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
         var setsByExerciseID: [UUID: [LoggedSet]] = [:]
         for set in loggedSets {
             guard let exerciseID = set.exercise?.id else { continue }
@@ -107,15 +113,19 @@ final class ProgressViewModel {
     }
 
     func refreshExerciseMetrics(with sets: [LoggedSet]) {
-        let allSets = sets.sorted { $0.completedAt < $1.completedAt }
-        let filteredSets = filteredSets(allSets, for: timeRange)
+        let sortedSetsAscending = sets.sorted { $0.completedAt < $1.completedAt }
+        let sortedSetsDescending = sortedSetsAscending.reversed()
+        let filteredSetsAscending = filteredSets(sortedSetsAscending, for: timeRange)
+        let filteredSetsDescending = filteredSetsAscending.reversed()
 
         exerciseMetrics = ExerciseProgressMetrics(
-            chartPoints: maxWeightPoints(for: filteredSets),
-            personalRecord: personalRecord(for: allSets),
-            totalVolume: totalVolume(for: filteredSets),
-            recentSets: Array(filteredSets.suffix(20).reversed()),
-            hasFilteredSets: !filteredSets.isEmpty
+            sortedSetsAscending: sortedSetsAscending,
+            sortedSetsDescending: Array(sortedSetsDescending),
+            chartPoints: maxWeightPoints(for: filteredSetsAscending),
+            personalRecord: personalRecord(for: sortedSetsAscending),
+            totalVolume: totalVolume(for: filteredSetsAscending),
+            recentSets: Array(filteredSetsDescending.prefix(20)),
+            hasFilteredSets: !filteredSetsAscending.isEmpty
         )
     }
 
