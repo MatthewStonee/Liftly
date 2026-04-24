@@ -28,6 +28,7 @@ final class ProgressViewModel {
     var timeRange: TimeRange = .threeMonths
     var overview = ProgressOverview()
     var exerciseMetrics = ExerciseProgressMetrics()
+    @ObservationIgnored private var personalRecordsByRep: [PersonalRecordKey: LoggedSet] = [:]
 
     enum TimeRange: String, CaseIterable {
         case oneMonth = "1M"
@@ -113,6 +114,8 @@ final class ProgressViewModel {
     }
 
     func refreshExerciseMetrics(with sets: [LoggedSet]) {
+        rebuildPersonalRecordCache(from: sets)
+
         let sortedSetsAscending = sets.sorted { $0.completedAt < $1.completedAt }
         let sortedSetsDescending = sortedSetsAscending.reversed()
         let filteredSetsAscending = filteredSets(sortedSetsAscending, for: timeRange)
@@ -136,31 +139,91 @@ final class ProgressViewModel {
 
     // MARK: - PR Detection
 
-    /// Checks if a weight beats the current PR for an exercise at a given rep count.
-    func isNewPersonalRecord(exercise: Exercise, weight: Double, reps: Int, excluding: LoggedSet? = nil) -> Bool {
-        let previousMax = exercise.loggedSetsList
-            .filter { $0.reps == reps && $0.id != excluding?.id }
-            .map(\.weight)
-            .max() ?? 0
-        return weight > 0 && weight > previousMax
+    func refreshPersonalRecordCache(with sets: [LoggedSet]) {
+        rebuildPersonalRecordCache(from: sets)
     }
 
-    /// Clears the PR flag on all sets for an exercise at a given rep count.
-    func clearPR(exercise: Exercise, reps: Int, excluding: LoggedSet? = nil) {
-        for set in exercise.loggedSetsList where set.reps == reps && set.isPersonalRecord && set.id != excluding?.id {
+    func assignPersonalRecordStatus(to set: LoggedSet, for exercise: Exercise) {
+        let key = PersonalRecordKey(exerciseID: exercise.id, reps: set.reps)
+        guard set.weight > 0 else {
             set.isPersonalRecord = false
+            return
+        }
+
+        guard let currentPR = personalRecordsByRep[key] else {
+            set.isPersonalRecord = true
+            personalRecordsByRep[key] = set
+            return
+        }
+
+        let isNewPersonalRecord = set.weight > currentPR.weight
+        set.isPersonalRecord = isNewPersonalRecord
+
+        if isNewPersonalRecord {
+            currentPR.isPersonalRecord = false
+            personalRecordsByRep[key] = set
         }
     }
 
-    /// Promotes the heaviest set at a given rep count to PR after a deletion.
-    func promotePR(exercise: Exercise, reps: Int, excluding: LoggedSet? = nil) {
-        if let newPR = exercise.loggedSetsList
-            .filter({ $0.reps == reps && $0.id != excluding?.id })
-            .max(by: { $0.weight < $1.weight }), newPR.weight > 0 {
-            newPR.isPersonalRecord = true
+    func recalculatePersonalRecord(
+        for exercise: Exercise,
+        reps: Int,
+        in sets: [LoggedSet],
+        excluding excludedSet: LoggedSet? = nil
+    ) {
+        let excludedID = excludedSet?.id
+        let key = PersonalRecordKey(exerciseID: exercise.id, reps: reps)
+        var bestSet: LoggedSet?
+
+        for set in sets where set.exercise?.id == exercise.id && set.reps == reps && set.id != excludedID && set.weight > 0 {
+            if bestSet == nil || set.weight > (bestSet?.weight ?? 0) {
+                bestSet = set
+            }
+        }
+
+        for set in sets where set.exercise?.id == exercise.id && set.reps == reps && set.id != excludedID {
+            set.isPersonalRecord = set.id == bestSet?.id
+        }
+
+        excludedSet?.isPersonalRecord = false
+
+        if let bestSet {
+            personalRecordsByRep[key] = bestSet
+        } else {
+            personalRecordsByRep.removeValue(forKey: key)
         }
     }
 
+    func recalculatePersonalRecordsAfterEdit(
+        _ set: LoggedSet,
+        for exercise: Exercise,
+        originalReps: Int,
+        in sets: [LoggedSet]
+    ) {
+        if originalReps != set.reps {
+            recalculatePersonalRecord(for: exercise, reps: originalReps, in: sets, excluding: set)
+        }
+        recalculatePersonalRecord(for: exercise, reps: set.reps, in: sets)
+    }
+
+    private func rebuildPersonalRecordCache(from sets: [LoggedSet]) {
+        personalRecordsByRep.removeAll(keepingCapacity: true)
+
+        for set in sets where set.weight > 0 {
+            guard let exerciseID = set.exercise?.id else { continue }
+            let key = PersonalRecordKey(exerciseID: exerciseID, reps: set.reps)
+
+            if personalRecordsByRep[key] == nil || set.weight > (personalRecordsByRep[key]?.weight ?? 0) {
+                personalRecordsByRep[key] = set
+            }
+        }
+    }
+
+}
+
+private struct PersonalRecordKey: Hashable {
+    let exerciseID: UUID
+    let reps: Int
 }
 
 @ModelActor

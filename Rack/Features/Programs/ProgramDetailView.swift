@@ -67,7 +67,7 @@ struct ProgramDetailView: View {
 
                     PrimaryButton("Add Workout Day", icon: "plus") {
                         newWorkoutName = ""
-                        showingAddWorkout = true
+                        showAddWorkoutOverlay()
                     }
                     .disabled(isReorderMode)
                     .opacity(isReorderMode ? 0.45 : 1.0)
@@ -81,9 +81,9 @@ struct ProgramDetailView: View {
 
             if showingAddWorkout {
                 addWorkoutOverlay
+                    .transition(.opacity)
             }
         }
-        .animation(.easeInOut(duration: 0.2), value: showingAddWorkout)
         .navigationTitle(program.name)
         .titleDisplayMode(.inline)
         .navigationDestination(item: $selectedWorkout) { workout in
@@ -176,7 +176,7 @@ struct ProgramDetailView: View {
                 .onTapGesture {
                     workoutNameFocused = false
                     newWorkoutName = ""
-                    showingAddWorkout = false
+                    hideAddWorkoutOverlay()
                 }
 
             VStack(spacing: 16) {
@@ -195,7 +195,7 @@ struct ProgramDetailView: View {
                     GlassButton("Cancel", role: .cancel) {
                         workoutNameFocused = false
                         newWorkoutName = ""
-                        showingAddWorkout = false
+                        hideAddWorkoutOverlay()
                     }
 
                     PrimaryButton("Add") {
@@ -275,7 +275,19 @@ struct ProgramDetailView: View {
     private func submitWorkout() {
         workoutNameFocused = false
         addWorkout()
-        showingAddWorkout = false
+        hideAddWorkoutOverlay()
+    }
+
+    private func showAddWorkoutOverlay() {
+        withAnimation(.easeInOut(duration: 0.2)) {
+            showingAddWorkout = true
+        }
+    }
+
+    private func hideAddWorkoutOverlay() {
+        withAnimation(.easeInOut(duration: 0.2)) {
+            showingAddWorkout = false
+        }
     }
 
     private func addWorkout() {
