@@ -58,6 +58,10 @@ struct ReorderableForEach<T: Identifiable, Content: View>: View where T.ID: Hash
     @State private var targetInsertionIndex: Int? = nil
     @State private var isDropTargeted = false
     @State private var didCommitDrop = false
+    @State private var dragStartFeedbackTrigger = 0
+    @State private var insertionFeedbackTrigger = 0
+    @State private var commitFeedbackTrigger = 0
+    @State private var reorderExitFeedbackTrigger = 0
 
     private let rowSpacing: CGFloat = 12
     private let appendZoneHeight: CGFloat = 56
@@ -93,8 +97,15 @@ struct ReorderableForEach<T: Identifiable, Content: View>: View where T.ID: Hash
         }
         .animation(.spring(response: 0.28, dampingFraction: 0.84), value: targetInsertionIndex)
         .animation(.easeInOut(duration: 0.18), value: isDropTargeted)
-        .onChange(of: isEnabled) { _, enabled in
+        .sensoryFeedback(.impact(flexibility: .soft, intensity: 0.45), trigger: dragStartFeedbackTrigger)
+        .sensoryFeedback(.selection, trigger: insertionFeedbackTrigger)
+        .sensoryFeedback(.impact(flexibility: .solid, intensity: 0.7), trigger: commitFeedbackTrigger)
+        .sensoryFeedback(.impact(flexibility: .soft, intensity: 0.35), trigger: reorderExitFeedbackTrigger)
+        .onChange(of: isEnabled) { wasEnabled, enabled in
             if !enabled {
+                if wasEnabled {
+                    reorderExitFeedbackTrigger += 1
+                }
                 resetDragState()
             }
         }
@@ -127,6 +138,7 @@ struct ReorderableForEach<T: Identifiable, Content: View>: View where T.ID: Hash
     }
 
     @State private var indicatorTarget: IndicatorTarget? = nil
+    @State private var lastFeedbackTarget: IndicatorTarget? = nil
 
     private var appendDropZone: some View {
         dropTarget(
@@ -247,7 +259,10 @@ struct ReorderableForEach<T: Identifiable, Content: View>: View where T.ID: Hash
         if let currentIndex = displayItems.firstIndex(where: { $0.id == id }) {
             targetInsertionIndex = currentIndex
             indicatorTarget = .row(index: currentIndex, edge: .top)
+            lastFeedbackTarget = indicatorTarget
         }
+
+        dragStartFeedbackTrigger += 1
     }
 
     private func endDrag(for id: T.ID) {
@@ -271,6 +286,7 @@ struct ReorderableForEach<T: Identifiable, Content: View>: View where T.ID: Hash
             targetInsertionIndex = index
             isDropTargeted = true
             self.indicatorTarget = indicatorTarget
+            triggerInsertionFeedbackIfNeeded(for: indicatorTarget)
         } else if targetInsertionIndex == index {
             isDropTargeted = false
         }
@@ -314,7 +330,14 @@ struct ReorderableForEach<T: Identifiable, Content: View>: View where T.ID: Hash
 
         workingItems = reordered
         onCommitOrder(reordered.map(\.id))
+        commitFeedbackTrigger += 1
         return true
+    }
+
+    private func triggerInsertionFeedbackIfNeeded(for target: IndicatorTarget) {
+        guard lastFeedbackTarget != target else { return }
+        lastFeedbackTarget = target
+        insertionFeedbackTrigger += 1
     }
 
     private func resetDragState() {
@@ -323,6 +346,7 @@ struct ReorderableForEach<T: Identifiable, Content: View>: View where T.ID: Hash
         targetInsertionIndex = nil
         isDropTargeted = false
         indicatorTarget = nil
+        lastFeedbackTarget = nil
         didCommitDrop = false
     }
 }
