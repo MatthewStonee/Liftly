@@ -17,6 +17,7 @@ struct ProgramDetailView: View {
     @State private var viewModel = ProgramDetailViewModel()
     @State private var isReorderMode = false
     @State private var selectedWorkout: WorkoutTemplate?
+    @AppStorage("programDetailViewMode") private var detailMode: ProgramDetailMode = .days
 
     private var gradient: some View {
         LinearGradient(
@@ -31,7 +32,10 @@ struct ProgramDetailView: View {
     }
 
     private var canToggleReorderMode: Bool {
-        pendingDeleteWorkout == nil && !showingAddWorkout && visibleWorkouts.count > 1
+        detailMode == .days
+            && pendingDeleteWorkout == nil
+            && !showingAddWorkout
+            && visibleWorkouts.count > 1
     }
 
     var body: some View {
@@ -39,9 +43,13 @@ struct ProgramDetailView: View {
             ScrollView {
                 VStack(spacing: 20) {
                     programHero
+                    viewModePicker
 
                     if visibleWorkouts.isEmpty {
                         emptyWorkoutsState
+                        addWorkoutButton
+                    } else if detailMode == .overview {
+                        ProgramOverviewView(workouts: visibleWorkouts)
                     } else {
                         ReorderableForEach(
                             items: visibleWorkouts,
@@ -63,15 +71,10 @@ struct ProgramDetailView: View {
                             .accessibilityLabel(workout.name)
                             .accessibilityAddTraits(.isButton)
                         }
-                    }
 
-                    PrimaryButton("Add Workout Day", icon: "plus") {
-                        newWorkoutName = ""
-                        showAddWorkoutOverlay()
+                        addWorkoutButton
+                            .padding(.top, 4)
                     }
-                    .disabled(isReorderMode)
-                    .opacity(isReorderMode ? 0.45 : 1.0)
-                    .padding(.top, 4)
                 }
                 .padding(.horizontal, 16)
                 .padding(.top, 8)
@@ -116,7 +119,7 @@ struct ProgramDetailView: View {
                 }
 
                 Menu {
-                    if visibleWorkouts.count > 1 && !isReorderMode {
+                    if detailMode == .days && visibleWorkouts.count > 1 && !isReorderMode {
                         Button {
                             toggleReorderMode()
                         } label: {
@@ -154,6 +157,11 @@ struct ProgramDetailView: View {
         }
         .sheet(isPresented: $showingEditProgram) {
             CreateProgramView(existingProgram: program)
+        }
+        .onChange(of: detailMode) { _, newMode in
+            if newMode == .overview {
+                exitReorderMode()
+            }
         }
         .undoToast(
             isPresented: Binding(
@@ -246,6 +254,29 @@ struct ProgramDetailView: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.top, 4)
+    }
+
+    private var viewModePicker: some View {
+        Picker("Program View", selection: $detailMode) {
+            Text("Overview").tag(ProgramDetailMode.overview)
+            Text("Days").tag(ProgramDetailMode.days)
+        }
+        .pickerStyle(.segmented)
+        .disabled(isReorderMode || showingAddWorkout)
+        .accessibilityLabel("Program View")
+        .accessibilityHint("Switches between the all-days overview and workout day management")
+    }
+
+    private var addWorkoutButton: some View {
+        PrimaryButton("Add Workout Day", icon: "plus") {
+            if detailMode == .overview {
+                detailMode = .days
+            }
+            newWorkoutName = ""
+            showAddWorkoutOverlay()
+        }
+        .disabled(isReorderMode)
+        .opacity(isReorderMode ? 0.45 : 1.0)
     }
 
     private var emptyWorkoutsState: some View {
