@@ -8,12 +8,9 @@ struct ProgramDetailView: View {
     @Query private var allPrograms: [Program]
     var onDeleteProgram: (() -> Void)?
     @State private var showingAddWorkout = false
-    @State private var editingWorkoutName: WorkoutTemplate?
-    @State private var newWorkoutName = ""
     @State private var showingEditProgram = false
     @State private var pendingDeleteWorkout: WorkoutTemplate?
     @State private var workoutDeleteTask: Task<Void, Never>?
-    @FocusState private var workoutNameFocused: Bool
     @State private var viewModel = ProgramDetailViewModel()
     @State private var isReorderMode = false
     @State private var selectedWorkout: WorkoutTemplate?
@@ -27,49 +24,55 @@ struct ProgramDetailView: View {
         .ignoresSafeArea()
     }
 
-    private var visibleWorkouts: [WorkoutTemplate] {
-        program.sortedWorkouts.filter { $0.id != pendingDeleteWorkout?.id }
-    }
-
-    private var canToggleReorderMode: Bool {
-        detailMode == .days
+    var body: some View {
+        let workouts = program.workoutsList
+        let visibleWorkouts = workouts
+            .sorted { $0.orderIndex < $1.orderIndex }
+            .filter { $0.id != pendingDeleteWorkout?.id }
+        let exerciseCount = workouts.reduce(0) { $0 + $1.plannedExercisesList.count }
+        let canToggleReorderMode = detailMode == .days
             && pendingDeleteWorkout == nil
             && !showingAddWorkout
             && visibleWorkouts.count > 1
-    }
 
-    var body: some View {
         ZStack {
             ScrollView {
                 VStack(spacing: 20) {
-                    programHero
+                    programHero(
+                        workoutCount: workouts.count,
+                        exerciseCount: exerciseCount
+                    )
                     viewModePicker
 
                     if visibleWorkouts.isEmpty {
                         emptyWorkoutsState
                         addWorkoutButton
                     } else if detailMode == .overview {
-                        ProgramOverviewView(workouts: visibleWorkouts)
+                        GlassEffectContainer(spacing: 12) {
+                            ProgramOverviewView(workouts: visibleWorkouts)
+                        }
                     } else {
-                        ReorderableForEach(
-                            items: visibleWorkouts,
-                            isEnabled: isReorderMode,
-                            onCommitOrder: { orderedIDs in
-                                viewModel.reorderWorkouts(in: program, orderedIDs: orderedIDs, context: context)
-                            }
-                        ) { workout, dragHandle in
-                            WorkoutTemplateRow(
-                                workout: workout,
-                                isReorderMode: isReorderMode,
-                                dragHandle: dragHandle,
-                                onTap: {
-                                    guard !isReorderMode else { return }
-                                    selectedWorkout = workout
+                        GlassEffectContainer(spacing: 12) {
+                            ReorderableForEach(
+                                items: visibleWorkouts,
+                                isEnabled: isReorderMode,
+                                onCommitOrder: { orderedIDs in
+                                    viewModel.reorderWorkouts(in: program, orderedIDs: orderedIDs, context: context)
                                 }
-                            )
-                            .accessibilityElement()
-                            .accessibilityLabel(workout.name)
-                            .accessibilityAddTraits(.isButton)
+                            ) { workout, dragHandle in
+                                WorkoutTemplateRow(
+                                    workout: workout,
+                                    isReorderMode: isReorderMode,
+                                    dragHandle: dragHandle,
+                                    onTap: {
+                                        guard !isReorderMode else { return }
+                                        selectedWorkout = workout
+                                    }
+                                )
+                                .accessibilityElement()
+                                .accessibilityLabel(workout.name)
+                                .accessibilityAddTraits(.isButton)
+                            }
                         }
 
                         addWorkoutButton
@@ -83,7 +86,13 @@ struct ProgramDetailView: View {
             .allowsHitTesting(!showingAddWorkout)
 
             if showingAddWorkout {
-                addWorkoutOverlay
+                AddWorkoutOverlay(
+                    onCancel: hideAddWorkoutOverlay,
+                    onSubmit: { name in
+                        addWorkout(named: name)
+                        hideAddWorkoutOverlay()
+                    }
+                )
                     .transition(.opacity)
             }
         }
@@ -97,11 +106,7 @@ struct ProgramDetailView: View {
                     try? await Task.sleep(for: .seconds(4))
                     guard !Task.isCancelled else { return }
                     await MainActor.run {
-                        if let program = workout.program {
-                            var workouts = program.workouts ?? []
-                            workouts.removeAll { $0.id == workout.id }
-                            program.workouts = workouts
-                        }
+                        workout.program = nil
                         context.delete(workout)
                         pendingDeleteWorkout = nil
                     }
@@ -113,7 +118,7 @@ struct ProgramDetailView: View {
             ToolbarItemGroup(placement: .topBarTrailing) {
                 if isReorderMode {
                     Button("Done") {
-                        toggleReorderMode()
+                        exitReorderMode()
                     }
                     .accessibilityLabel("Done Reordering")
                 }
@@ -121,7 +126,7 @@ struct ProgramDetailView: View {
                 Menu {
                     if detailMode == .days && visibleWorkouts.count > 1 && !isReorderMode {
                         Button {
-                            toggleReorderMode()
+                            enterReorderMode(if: canToggleReorderMode)
                         } label: {
                             Label("Reorder", systemImage: "arrow.up.arrow.down")
                         }
@@ -131,8 +136,7 @@ struct ProgramDetailView: View {
                     if !isReorderMode {
                         if !program.isActive {
                             Button {
-                                for p in allPrograms { p.isActive = false }
-                                program.isActive = true
+                                setProgramActive()
                             } label: {
                                 Label("Set as Active", systemImage: "checkmark.circle")
                             }
@@ -177,50 +181,7 @@ struct ProgramDetailView: View {
         )
     }
 
-    private var addWorkoutOverlay: some View {
-        ZStack {
-            Color.black.opacity(0.5)
-                .ignoresSafeArea()
-                .onTapGesture {
-                    workoutNameFocused = false
-                    newWorkoutName = ""
-                    hideAddWorkoutOverlay()
-                }
-
-            VStack(spacing: 16) {
-                Text("Add Workout Day")
-                    .font(.headline)
-                    .foregroundStyle(.white)
-
-                TextField("e.g. Push Day, Day 1", text: $newWorkoutName)
-                    .focused($workoutNameFocused)
-                    .submitLabel(.done)
-                    .onSubmit { submitWorkout() }
-                    .padding(14)
-                    .background(Color.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 12))
-
-                HStack(spacing: 12) {
-                    GlassButton("Cancel", role: .cancel) {
-                        workoutNameFocused = false
-                        newWorkoutName = ""
-                        hideAddWorkoutOverlay()
-                    }
-
-                    PrimaryButton("Add") {
-                        submitWorkout()
-                    }
-                    .opacity(newWorkoutName.trimmingCharacters(in: .whitespaces).isEmpty ? 0.4 : 1.0)
-                    .disabled(newWorkoutName.trimmingCharacters(in: .whitespaces).isEmpty)
-                }
-            }
-            .padding(24)
-            .glassBackground(cornerRadius: 20)
-            .padding(.horizontal, 32)
-            .onAppear { workoutNameFocused = true }
-        }
-    }
-
-    private var programHero: some View {
+    private func programHero(workoutCount: Int, exerciseCount: Int) -> some View {
         VStack(alignment: .leading, spacing: 12) {
             Text("PROGRAM")
                 .font(.caption.bold())
@@ -238,17 +199,19 @@ struct ProgramDetailView: View {
                     .foregroundStyle(.secondary)
             }
 
-            HStack(spacing: 12) {
-                StatBadge(
-                    value: "\(program.workoutsList.count)",
-                    label: program.workoutsList.count == 1 ? "Day" : "Days",
-                    style: .hero
-                )
-                StatBadge(
-                    value: "\(program.exerciseCount)",
-                    label: "Exercises",
-                    style: .hero
-                )
+            GlassEffectContainer(spacing: 12) {
+                HStack(spacing: 12) {
+                    StatBadge(
+                        value: "\(workoutCount)",
+                        label: workoutCount == 1 ? "Day" : "Days",
+                        style: .hero
+                    )
+                    StatBadge(
+                        value: "\(exerciseCount)",
+                        label: "Exercises",
+                        style: .hero
+                    )
+                }
             }
             .padding(.top, 4)
         }
@@ -272,7 +235,6 @@ struct ProgramDetailView: View {
             if detailMode == .overview {
                 detailMode = .days
             }
-            newWorkoutName = ""
             showAddWorkoutOverlay()
         }
         .disabled(isReorderMode)
@@ -303,12 +265,6 @@ struct ProgramDetailView: View {
         dismiss()
     }
 
-    private func submitWorkout() {
-        workoutNameFocused = false
-        addWorkout()
-        hideAddWorkoutOverlay()
-    }
-
     private func showAddWorkoutOverlay() {
         withAnimation(.easeInOut(duration: 0.2)) {
             showingAddWorkout = true
@@ -321,29 +277,91 @@ struct ProgramDetailView: View {
         }
     }
 
-    private func addWorkout() {
-        let trimmed = newWorkoutName.trimmingCharacters(in: .whitespaces)
-        guard !trimmed.isEmpty else { return }
-        let workout = WorkoutTemplate(name: trimmed, orderIndex: program.workoutsList.count)
+    private func addWorkout(named name: String) {
+        let workout = WorkoutTemplate(name: name, orderIndex: program.workoutsList.count)
         workout.program = program
-        var workouts = program.workouts ?? []
-        workouts.append(workout)
-        program.workouts = workouts
         context.insert(workout)
-        newWorkoutName = ""
     }
 
-    private func toggleReorderMode() {
-        isReorderMode ? exitReorderMode() : enterReorderMode()
+    private func setProgramActive() {
+        for candidate in allPrograms where candidate.id != program.id && candidate.isActive {
+            candidate.isActive = false
+        }
+
+        if !program.isActive {
+            program.isActive = true
+        }
     }
 
-    private func enterReorderMode() {
-        guard canToggleReorderMode else { return }
+    private func enterReorderMode(if canToggle: Bool) {
+        guard canToggle else { return }
         isReorderMode = true
     }
 
     private func exitReorderMode() {
         isReorderMode = false
+    }
+}
+
+private struct AddWorkoutOverlay: View {
+    let onCancel: () -> Void
+    let onSubmit: (String) -> Void
+
+    @State private var name = ""
+    @FocusState private var isNameFocused: Bool
+
+    private var trimmedName: String {
+        name.trimmingCharacters(in: .whitespaces)
+    }
+
+    var body: some View {
+        ZStack {
+            Color.black.opacity(0.5)
+                .ignoresSafeArea()
+                .onTapGesture {
+                    cancel()
+                }
+
+            VStack(spacing: 16) {
+                Text("Add Workout Day")
+                    .font(.headline)
+                    .foregroundStyle(.white)
+
+                TextField("e.g. Push Day, Day 1", text: $name)
+                    .focused($isNameFocused)
+                    .submitLabel(.done)
+                    .onSubmit { submit() }
+                    .padding(14)
+                    .background(Color.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 12))
+
+                HStack(spacing: 12) {
+                    GlassButton("Cancel", role: .cancel) {
+                        cancel()
+                    }
+
+                    PrimaryButton("Add") {
+                        submit()
+                    }
+                    .opacity(trimmedName.isEmpty ? 0.4 : 1.0)
+                    .disabled(trimmedName.isEmpty)
+                }
+            }
+            .padding(24)
+            .glassBackground(cornerRadius: 20)
+            .padding(.horizontal, 32)
+            .onAppear { isNameFocused = true }
+        }
+    }
+
+    private func cancel() {
+        isNameFocused = false
+        onCancel()
+    }
+
+    private func submit() {
+        guard !trimmedName.isEmpty else { return }
+        isNameFocused = false
+        onSubmit(trimmedName)
     }
 }
 
@@ -354,12 +372,14 @@ struct WorkoutTemplateRow: View {
     let onTap: () -> Void
 
     var body: some View {
+        let exercises = workout.sortedExercises
+
         HStack(spacing: 16) {
             if isReorderMode {
-                rowContent
+                rowContent(exercises: exercises)
             } else {
                 Button(action: onTap) {
-                    rowContent
+                    rowContent(exercises: exercises)
                 }
                 .buttonStyle(.plain)
             }
@@ -372,11 +392,16 @@ struct WorkoutTemplateRow: View {
         .glassBackground()
     }
 
-    private var rowContent: some View {
-        HStack(spacing: 16) {
+    private func rowContent(exercises: [PlannedExercise]) -> some View {
+        let isEmpty = exercises.isEmpty
+        let preview = exercises.prefix(3).compactMap(\.exercise?.name)
+        let overflow = exercises.count - preview.count
+        let baseText = preview.joined(separator: " · ")
+
+        return HStack(spacing: 16) {
             VStack(alignment: .leading, spacing: 8) {
                 HStack(spacing: 6) {
-                    if workout.plannedExercisesList.isEmpty {
+                    if isEmpty {
                         Circle()
                             .stroke(Color.secondary.opacity(0.4), lineWidth: 1)
                             .frame(width: 6, height: 6)
@@ -391,10 +416,7 @@ struct WorkoutTemplateRow: View {
                         .tracking(-0.3)
                 }
 
-                if !workout.sortedExercises.isEmpty {
-                    let preview = workout.sortedExercises.prefix(3).compactMap(\.exercise?.name)
-                    let overflow = workout.sortedExercises.count - preview.count
-                    let baseText = preview.joined(separator: " · ")
+                if !isEmpty {
                     if overflow > 0 {
                         Text("\(baseText)  +\(overflow) more")
                             .font(.subheadline)
@@ -413,12 +435,12 @@ struct WorkoutTemplateRow: View {
 
             ZStack {
                 Circle()
-                    .fill(workout.plannedExercisesList.isEmpty ? Color.white.opacity(0.05) : Color.blue.opacity(isReorderMode ? 0.08 : 0.15))
+                    .fill(isEmpty ? Color.white.opacity(0.05) : Color.blue.opacity(isReorderMode ? 0.08 : 0.15))
                     .frame(width: 40, height: 40)
                 Image(systemName: "chevron.right")
                     .font(.subheadline.bold())
                     .foregroundStyle(
-                        workout.plannedExercisesList.isEmpty
+                        isEmpty
                         ? Color.secondary.opacity(isReorderMode ? 0.22 : 0.4)
                         : Color.blue.opacity(isReorderMode ? 0.55 : 1.0)
                     )

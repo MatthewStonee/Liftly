@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <title>Liftly full-bleed background</title>
+  <defs>
+    <radialGradient id="liftlyBlue" cx="49%" cy="34%" r="82%">
+      <stop offset="0" stop-color="#2D73E0"/>
+      <stop offset="0.48" stop-color="#183F82"/>
+      <stop offset="1" stop-color="#061329"/>
+    </radialGradient>
+  </defs>
+  <rect width="1024" height="1024" fill="url(#liftlyBlue)"/>
+</svg>
