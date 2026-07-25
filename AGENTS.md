@@ -1,7 +1,7 @@
 # Liftly — Codex Instructions
 
 ## Project Overview
-Liftly is an iOS fitness and workout programming app built with SwiftUI. Helps users track programs, exercises, sets, reps, and progress over time.
+Liftly is an iOS fitness and workout programming app built with SwiftUI. Helps users track programs, exercises, sets, reps, and more over time.
 
 ## Architecture & Conventions
 - SwiftUI for all UI (no UIKit unless SwiftUI can't do it)
@@ -9,7 +9,7 @@ Liftly is an iOS fitness and workout programming app built with SwiftUI. Helps u
 - MVVM — ViewModels are `@Observable`, hold all business logic; Views are dumb
 - Dark mode first (`.preferredColorScheme(.dark)` is forced app-wide)
 - Liquid Glass UI elements; SF Symbols for all icons
-- Follow Apple HIG; no custom nav patterns
+- Prioritize following Apple HIG; Ask when it may not be ideal
 - Fitness-friendly: large tap targets, easy one-handed use
 - All new views go in `Rack/Features/<FeatureName>/`
 
@@ -24,12 +24,6 @@ SwiftData `@Model` classes in `Rack/Models/`.
 - **Weights are always stored in lbs internally.** UI converts via `WeightUnit.display(_)` / `WeightUnit.store(_)` from `Rack/Shared/Extensions.swift`. User preference lives in `@AppStorage("weightUnit")`. Any new weight-facing view must go through these helpers — never read/write raw doubles to the user.
 - **`LoggedSet.session` is optional.** This is intentional so Quick Log can create a `LoggedSet` without a `WorkoutSession`. Code that filters "sets belonging to a session" must handle nil.
 - **PRs are tracked per exercise × per rep count**, not just per exercise. A one-time `backfillPersonalRecords()` runs on app launch to mark historical PRs. New/edit/delete of a `LoggedSet` must go through `ProgressViewModel` methods so the `isPersonalRecord` flag is demoted/promoted correctly.
-
-## Implemented Features
-- **Programs tab** — list, create, rename, delete program (with undo); program detail with workout days; workout day detail with planned exercises (add, edit sets/reps/weight, rename day, delete day); drag-to-reorder days and exercises
-- **Progress tab** — exercise list with PR + set count; per-exercise detail with Swift Charts line chart, 5 time-range filters, recent sets log; Quick Log FAB to log a set without a workout session; edit/delete logged sets via tap or context menu
-- **Settings tab** — weight unit preference (lbs / kg), persisted via `@AppStorage`
-- **Shared** — `ExercisePickerView` with muscle group filter chips and inline exercise creation
 
 ## Shared Utilities
 Check `Rack/Shared/` before building a new card/button/row.
@@ -61,7 +55,7 @@ No tests currently. Don't invent speculative tests — if a change genuinely nee
 
 ## Build Configuration
 - Scheme: `Rack`
-- Target simulator: iPhone 17 Pro (iOS 26.x)
+- Target simulator: iPhone 17 Pro (iOS 27.x)
 - iPhone-only (no iPad, no Mac Catalyst) — layouts can assume phone-sized viewports
 - Build command: Ask if you should use XcodeBuildMCP tools, never raw `xcodebuild` shell commands
 
