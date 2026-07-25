@@ -11,7 +11,6 @@ Liftly is an iOS fitness and workout programming app built with SwiftUI. Helps u
 - Liquid Glass UI elements; SF Symbols for all icons
 - Prioritize following Apple HIG; Ask when it may not be ideal
 - Fitness-friendly: large tap targets, easy one-handed use
-- All new views go in `Rack/Features/<FeatureName>/`
 
 ## Data Models
 SwiftData `@Model` classes in `Rack/Models/`.
