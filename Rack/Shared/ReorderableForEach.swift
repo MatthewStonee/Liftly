@@ -123,8 +123,8 @@ struct ReorderableForEach<T: Identifiable, Content: View>: View where T.ID: Hash
         workingItems ?? items
     }
 
-    private var itemTokens: [String] {
-        displayItems.map { dragToken(for: $0.id) }
+    private var itemTokens: [T.ID] {
+        displayItems.map(\.id)
     }
 
     private enum RowEdge: Equatable {

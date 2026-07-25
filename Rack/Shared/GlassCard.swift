@@ -130,13 +130,33 @@ struct PrimaryButton: View {
 
 struct StatBadge: View {
     enum Style { case standard, hero }
+    enum Surface { case glass, embedded }
 
     let value: String
     let label: String
     var style: Style = .standard
+    var surface: Surface = .glass
 
+    @ViewBuilder
     var body: some View {
-        VStack(alignment: style == .hero ? .leading : .center, spacing: style == .hero ? 4 : 2) {
+        switch surface {
+        case .glass:
+            content
+                .glassEffect(.regular, in: .rect(cornerRadius: style == .hero ? 14 : 12))
+        case .embedded:
+            content
+                .background(
+                    Color.white.opacity(0.06),
+                    in: RoundedRectangle(cornerRadius: style == .hero ? 14 : 12)
+                )
+        }
+    }
+
+    private var content: some View {
+        VStack(
+            alignment: style == .hero ? .leading : .center,
+            spacing: style == .hero ? 4 : 2
+        ) {
             Text(value)
                 .font(style == .hero ? .title2.bold() : .title3.bold())
                 .foregroundStyle(.primary)
@@ -146,7 +166,6 @@ struct StatBadge: View {
         }
         .frame(maxWidth: .infinity, alignment: style == .hero ? .leading : .center)
         .padding(style == .hero ? 16 : 10)
-        .glassEffect(.regular, in: .rect(cornerRadius: style == .hero ? 14 : 12))
     }
 }
 

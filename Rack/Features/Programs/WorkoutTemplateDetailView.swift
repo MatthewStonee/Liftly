@@ -14,34 +14,35 @@ struct WorkoutTemplateDetailView: View {
     @State private var pendingDeleteExercise: PlannedExercise?
     @State private var exerciseDeleteTask: Task<Void, Never>?
 
-    private var visibleExercises: [PlannedExercise] {
-        workout.sortedExercises.filter { $0.id != pendingDeleteExercise?.id }
-    }
-
-    private var canToggleReorderMode: Bool {
-        pendingDeleteExercise == nil && !showingExercisePicker && visibleExercises.count > 1
-    }
-
     var body: some View {
+        let visibleExercises = workout.plannedExercisesList
+            .sorted { $0.orderIndex < $1.orderIndex }
+            .filter { $0.id != pendingDeleteExercise?.id }
+        let canToggleReorderMode = pendingDeleteExercise == nil
+            && !showingExercisePicker
+            && visibleExercises.count > 1
+
         ScrollView {
             VStack(spacing: 12) {
                 if visibleExercises.isEmpty {
                     emptyExercisesState
                 } else {
-                    ReorderableForEach(
-                        items: visibleExercises,
-                        isEnabled: isReorderMode,
-                        onCommitOrder: { orderedIDs in
-                            viewModel.reorderExercises(in: workout, orderedIDs: orderedIDs, context: context)
-                        }
-                    ) { planned, dragHandle in
-                        PlannedExerciseRow(
-                            planned: planned,
-                            isReorderMode: isReorderMode,
-                            dragHandle: dragHandle
-                        ) {
+                    GlassEffectContainer(spacing: 12) {
+                        ReorderableForEach(
+                            items: visibleExercises,
+                            isEnabled: isReorderMode,
+                            onCommitOrder: { orderedIDs in
+                                viewModel.reorderExercises(in: workout, orderedIDs: orderedIDs, context: context)
+                            }
+                        ) { planned, dragHandle in
+                            PlannedExerciseRow(
+                                planned: planned,
+                                isReorderMode: isReorderMode,
+                                dragHandle: dragHandle
+                            ) {
                                 deletePlannedExercise(planned)
                             }
+                        }
                     }
                 }
 
@@ -69,7 +70,7 @@ struct WorkoutTemplateDetailView: View {
             ToolbarItemGroup(placement: .topBarTrailing) {
                 if isReorderMode {
                     Button("Done") {
-                        toggleReorderMode()
+                        exitReorderMode()
                     }
                     .accessibilityLabel("Done Reordering")
                 }
@@ -77,7 +78,7 @@ struct WorkoutTemplateDetailView: View {
                 Menu {
                     if visibleExercises.count > 1 && !isReorderMode {
                         Button {
-                            toggleReorderMode()
+                            enterReorderMode(if: canToggleReorderMode)
                         } label: {
                             Label("Reorder", systemImage: "arrow.up.arrow.down")
                         }
@@ -155,9 +156,6 @@ struct WorkoutTemplateDetailView: View {
             orderIndex: workout.plannedExercisesList.count
         )
         planned.workoutTemplate = workout
-        var plannedExercises = workout.plannedExercises ?? []
-        plannedExercises.append(planned)
-        workout.plannedExercises = plannedExercises
         context.insert(planned)
     }
 
@@ -169,9 +167,7 @@ struct WorkoutTemplateDetailView: View {
             try? await Task.sleep(for: .seconds(4))
             guard !Task.isCancelled else { return }
             await MainActor.run {
-                var plannedExercises = workout.plannedExercises ?? []
-                plannedExercises.removeAll { $0.id == planned.id }
-                workout.plannedExercises = plannedExercises
+                planned.workoutTemplate = nil
                 context.delete(planned)
                 pendingDeleteExercise = nil
             }
@@ -184,12 +180,8 @@ struct WorkoutTemplateDetailView: View {
         dismiss()
     }
 
-    private func toggleReorderMode() {
-        isReorderMode ? exitReorderMode() : enterReorderMode()
-    }
-
-    private func enterReorderMode() {
-        guard canToggleReorderMode else { return }
+    private func enterReorderMode(if canToggle: Bool) {
+        guard canToggle else { return }
         isReorderMode = true
     }
 

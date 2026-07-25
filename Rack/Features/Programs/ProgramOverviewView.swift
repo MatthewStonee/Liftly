@@ -38,6 +38,7 @@ private struct ProgramOverviewDaySection: View {
 
     var body: some View {
         let exercises = workout.sortedExercises
+        let exerciseCountText = "\(exercises.count) \(exercises.count == 1 ? "exercise" : "exercises")"
 
         GlassCard(cornerRadius: 18, padding: 0) {
             VStack(alignment: .leading, spacing: 0) {
@@ -46,7 +47,7 @@ private struct ProgramOverviewDaySection: View {
                         isExpanded.toggle()
                     }
                 } label: {
-                    header
+                    header(exerciseCountText: exerciseCountText)
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel("Day \(dayNumber), \(workout.name)")
@@ -89,7 +90,7 @@ private struct ProgramOverviewDaySection: View {
         }
     }
 
-    private var header: some View {
+    private func header(exerciseCountText: String) -> some View {
         HStack(spacing: 12) {
             VStack(alignment: .leading, spacing: 4) {
                 Text("Day \(dayNumber)")
@@ -119,11 +120,6 @@ private struct ProgramOverviewDaySection: View {
         .frame(minHeight: 44)
         .contentShape(Rectangle())
         .padding(14)
-    }
-
-    private var exerciseCountText: String {
-        let count = workout.plannedExercisesList.count
-        return "\(count) \(count == 1 ? "exercise" : "exercises")"
     }
 }
 

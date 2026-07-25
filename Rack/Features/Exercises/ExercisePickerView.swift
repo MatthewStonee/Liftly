@@ -29,7 +29,6 @@ struct ExercisePickerView: View {
                     hasActiveFilter: selectedMuscle != nil || !debouncedSearchText.isEmpty,
                     onSelect: onSelect
                 )
-                .id("\(selectedMuscle?.rawValue ?? "All")|\(debouncedSearchText)")
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background {

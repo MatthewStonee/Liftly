@@ -1,0 +1,119 @@
+{
+  "features" : [
+    "refractivity"
+  ],
+  "fill" : {
+    "linear-gradient" : [
+      "extended-srgb:0.00000,0.53333,1.00000,1.00000",
+      "display-p3:0.09565,0.18293,0.38833,1.00000"
+    ]
+  },
+  "groups" : [
+    {
+      "layers" : [
+        {
+          "image-name" : "01-bar.svg",
+          "name" : "01-bar"
+        }
+      ],
+      "name" : "Bar",
+      "refractivity" : {
+        "depth" : 0.04,
+        "enabled" : true,
+        "strength" : 0.28
+      },
+      "shadow" : {
+        "kind" : "neutral",
+        "opacity" : 0.5
+      },
+      "translucency" : {
+        "enabled" : true,
+        "value" : 0.14
+      }
+    },
+    {
+      "layers" : [
+        {
+          "image-name" : "02-rear-left.svg",
+          "name" : "02-rear-left"
+        },
+        {
+          "image-name" : "02-rear-right.svg",
+          "name" : "02-rear-right"
+        }
+      ],
+      "name" : "Rear Plates",
+      "refractivity" : {
+        "depth" : 0.08,
+        "enabled" : true,
+        "strength" : 0.34
+      },
+      "shadow" : {
+        "kind" : "neutral",
+        "opacity" : 0.54
+      },
+      "translucency" : {
+        "enabled" : true,
+        "value" : 0.26
+      }
+    },
+    {
+      "layers" : [
+        {
+          "image-name" : "03-middle-left.svg",
+          "name" : "03-middle-left"
+        },
+        {
+          "image-name" : "03-middle-right.svg",
+          "name" : "03-middle-right"
+        }
+      ],
+      "name" : "Middle Plates",
+      "refractivity" : {
+        "depth" : 0.12,
+        "enabled" : true,
+        "strength" : 0.42
+      },
+      "shadow" : {
+        "kind" : "neutral",
+        "opacity" : 0.58
+      },
+      "translucency" : {
+        "enabled" : true,
+        "value" : 0.21
+      }
+    },
+    {
+      "layers" : [
+        {
+          "image-name" : "04-front-left.svg",
+          "name" : "04-front-left"
+        },
+        {
+          "image-name" : "04-front-right.svg",
+          "name" : "04-front-right"
+        }
+      ],
+      "name" : "Front Plates",
+      "refractivity" : {
+        "depth" : 0.16,
+        "enabled" : true,
+        "strength" : 0.5
+      },
+      "shadow" : {
+        "kind" : "neutral",
+        "opacity" : 0.64
+      },
+      "translucency" : {
+        "enabled" : true,
+        "value" : 0.16
+      }
+    }
+  ],
+  "supported-platforms" : {
+    "circles" : [
+      "watchOS"
+    ],
+    "squares" : "shared"
+  }
+}

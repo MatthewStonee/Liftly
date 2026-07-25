@@ -11,19 +11,21 @@ struct ProgramsView: View {
     @State private var deleteTask: Task<Void, Never>?
     @State private var selectedProgram: Program?
 
-    private var visiblePrograms: [Program] {
-        programs.filter { $0.id != pendingDeleteProgram?.id }
-    }
-    private var activeProgram: Program? { visiblePrograms.first { $0.isActive } }
-    private var otherPrograms: [Program] { visiblePrograms.filter { !$0.isActive } }
-
     var body: some View {
+        let visiblePrograms = programs.filter { $0.id != pendingDeleteProgram?.id }
+        let activeProgram = visiblePrograms.first { $0.isActive }
+        let otherPrograms = visiblePrograms.filter { !$0.isActive }
+
         NavigationStack {
             Group {
                 if visiblePrograms.isEmpty {
                     emptyState
                 } else {
-                    programList
+                    programList(
+                        activeProgram: activeProgram,
+                        visiblePrograms: visiblePrograms,
+                        otherPrograms: otherPrograms
+                    )
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -94,8 +96,14 @@ struct ProgramsView: View {
         .ignoresSafeArea()
     }
 
-    private var programList: some View {
-        ScrollView {
+    private func programList(
+        activeProgram: Program?,
+        visiblePrograms: [Program],
+        otherPrograms: [Program]
+    ) -> some View {
+        let listedPrograms = activeProgram == nil ? visiblePrograms : otherPrograms
+
+        return ScrollView {
             VStack(alignment: .leading, spacing: 28) {
                 Text("Select your path to performance")
                     .font(.footnote)
@@ -116,18 +124,20 @@ struct ProgramsView: View {
                                 .padding(.horizontal, 20)
                         }
 
-                        VStack(spacing: 10) {
-                            ForEach(activeProgram == nil ? programs : otherPrograms) { program in
-                                ProgramRow(program: program) {
-                                    viewModel.setActive(program, allPrograms: programs, context: context)
+                        GlassEffectContainer(spacing: 10) {
+                            LazyVStack(spacing: 10) {
+                                ForEach(listedPrograms) { program in
+                                    ProgramRow(program: program) {
+                                        viewModel.setActive(program, allPrograms: programs, context: context)
+                                    }
+                                    .contentShape(Rectangle())
+                                    .onTapGesture {
+                                        selectedProgram = program
+                                    }
+                                    .accessibilityLabel(program.name)
+                                    .accessibilityAddTraits(.isButton)
+                                    .padding(.horizontal, 16)
                                 }
-                                .contentShape(Rectangle())
-                                .onTapGesture {
-                                    selectedProgram = program
-                                }
-                                .accessibilityLabel(program.name)
-                                .accessibilityAddTraits(.isButton)
-                                .padding(.horizontal, 16)
                             }
                         }
                     }
@@ -140,6 +150,10 @@ struct ProgramsView: View {
 
     @ViewBuilder
     private func activeProgramHero(_ program: Program) -> some View {
+        let workouts = program.workoutsList
+        let workoutCount = workouts.count
+        let exerciseCount = workouts.reduce(0) { $0 + $1.plannedExercisesList.count }
+
         ZStack(alignment: .bottomLeading) {
             RoundedRectangle(cornerRadius: 20)
                 .fill(Color(red: 0.08, green: 0.10, blue: 0.22))
@@ -185,17 +199,19 @@ struct ProgramsView: View {
                     .tracking(-0.5)
                     .lineLimit(2)
 
-                HStack(spacing: 12) {
-                    StatBadge(
-                        value: "\(program.workoutsList.count)",
-                        label: "Workouts",
-                        style: .hero
-                    )
-                    StatBadge(
-                        value: "\(program.exerciseCount)",
-                        label: "Exercises",
-                        style: .hero
-                    )
+                GlassEffectContainer(spacing: 12) {
+                    HStack(spacing: 12) {
+                        StatBadge(
+                            value: "\(workoutCount)",
+                            label: "Workouts",
+                            style: .hero
+                        )
+                        StatBadge(
+                            value: "\(exerciseCount)",
+                            label: "Exercises",
+                            style: .hero
+                        )
+                    }
                 }
             }
             .padding(24)
@@ -259,12 +275,16 @@ struct ProgramRow: View {
     let onSetActive: () -> Void
 
     var body: some View {
+        let workouts = program.workoutsList
+        let workoutCount = workouts.count
+        let exerciseCount = workouts.reduce(0) { $0 + $1.plannedExercisesList.count }
+
         HStack(spacing: 14) {
             VStack(alignment: .leading, spacing: 4) {
                 Text(program.name)
                     .font(.headline.bold())
                     .foregroundStyle(.white)
-                Text("\(program.workoutsList.count) \(program.workoutsList.count == 1 ? "Day" : "Days")  ·  \(program.exerciseCount) Exercises")
+                Text("\(workoutCount) \(workoutCount == 1 ? "Day" : "Days")  ·  \(exerciseCount) Exercises")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .tracking(0.5)

@@ -1,83 +1,188 @@
 import SwiftData
 import Foundation
+import OSLog
 
 enum ExerciseLibrary {
     private static let seededKey = "exerciseLibrarySeeded"
+    private static let logger = Logger(subsystem: "com.matthewstone.liftly", category: "ExerciseLibrary")
 
-    static func reconcile(context: ModelContext) {
+    /// Performs the minimum work required to make the library available on first launch.
+    /// Relationship repair runs later in `ExerciseLibraryMaintenanceActor`.
+    static func seedIfNeeded(context: ModelContext) {
+        guard !UserDefaults.standard.bool(forKey: seededKey) else { return }
+
         do {
-            var exercises = try context.fetch(FetchDescriptor<Exercise>())
-            let plannedExercises = try context.fetch(FetchDescriptor<PlannedExercise>())
-            let loggedSets = try context.fetch(FetchDescriptor<LoggedSet>())
-
-            var didChange = false
+            let exercises = try context.fetch(FetchDescriptor<Exercise>())
+            var identities = Set(exercises.map { ExerciseIdentity(exercise: $0) })
+            var didInsert = false
 
             for entry in seed {
-                let identity = ExerciseIdentity(name: entry.name, muscleGroup: entry.muscleGroup, equipment: entry.equipment)
-                let matches = exercises.filter { ExerciseIdentity(exercise: $0) == identity }
+                let identity = ExerciseIdentity(entry: entry)
+                guard identities.insert(identity).inserted else { continue }
 
-                guard !matches.isEmpty else {
-                    let exercise = Exercise(name: entry.name, muscleGroup: entry.muscleGroup, equipment: entry.equipment)
-                    context.insert(exercise)
-                    exercises.append(exercise)
-                    didChange = true
-                    continue
-                }
-
-                let canonical = canonicalExercise(
-                    from: matches,
-                    plannedExercises: plannedExercises,
-                    loggedSets: loggedSets
+                context.insert(
+                    Exercise(
+                        name: entry.name,
+                        muscleGroup: entry.muscleGroup,
+                        equipment: entry.equipment
+                    )
                 )
-
-                if canonical.name != entry.name {
-                    canonical.name = entry.name
-                    didChange = true
-                }
-                if canonical.muscleGroup != entry.muscleGroup {
-                    canonical.muscleGroup = entry.muscleGroup
-                    didChange = true
-                }
-                if canonical.equipment != entry.equipment {
-                    canonical.equipment = entry.equipment
-                    didChange = true
-                }
-
-                let duplicateIDs = Set(matches.map(\.id)).subtracting([canonical.id])
-                guard !duplicateIDs.isEmpty else { continue }
-
-                for plannedExercise in plannedExercises {
-                    if let id = plannedExercise.exercise?.id, duplicateIDs.contains(id) {
-                        plannedExercise.exercise = canonical
-                        didChange = true
-                    }
-                }
-
-                for loggedSet in loggedSets {
-                    if let id = loggedSet.exercise?.id, duplicateIDs.contains(id) {
-                        loggedSet.exercise = canonical
-                        didChange = true
-                    }
-                }
-
-                if recalculatePersonalRecords(for: canonical, loggedSets: loggedSets) {
-                    didChange = true
-                }
-
-                for duplicate in matches where duplicate.id != canonical.id {
-                    context.delete(duplicate)
-                    exercises.removeAll { $0.id == duplicate.id }
-                    didChange = true
-                }
+                didInsert = true
             }
 
-            if didChange {
+            if didInsert {
                 try context.save()
             }
+
+            UserDefaults.standard.set(true, forKey: seededKey)
+            logger.notice("Seeded the exercise library.")
         } catch {
-            return
+            context.rollback()
+            logger.error("Failed to seed the exercise library: \(String(describing: error), privacy: .public)")
+        }
+    }
+
+    static func resetSeedState() {
+        UserDefaults.standard.removeObject(forKey: seededKey)
+    }
+
+    fileprivate static func reconcile(context: ModelContext) throws -> Bool {
+        let exercises = try context.fetch(FetchDescriptor<Exercise>())
+        var exercisesByIdentity = Dictionary(grouping: exercises) {
+            ExerciseIdentity(exercise: $0)
+        }
+        var didChange = false
+
+        for entry in seed {
+            let identity = ExerciseIdentity(entry: entry)
+            guard exercisesByIdentity[identity] == nil else { continue }
+
+            let exercise = Exercise(
+                name: entry.name,
+                muscleGroup: entry.muscleGroup,
+                equipment: entry.equipment
+            )
+            context.insert(exercise)
+            exercisesByIdentity[identity] = [exercise]
+            didChange = true
         }
 
+        for entry in seed {
+            let identity = ExerciseIdentity(entry: entry)
+            guard let matches = exercisesByIdentity[identity], !matches.isEmpty else { continue }
+
+            var plannedExercises: [PlannedExercise] = []
+            var loggedSets: [LoggedSet] = []
+            var referenceCounts: [UUID: Int] = [:]
+
+            // Avoid faulting relationship collections for the normal, duplicate-free path.
+            if matches.count > 1 {
+                for exercise in matches {
+                    let exercisePlannedExercises = exercise.plannedExercisesList
+                    let exerciseLoggedSets = exercise.loggedSetsList
+                    plannedExercises.append(contentsOf: exercisePlannedExercises)
+                    loggedSets.append(contentsOf: exerciseLoggedSets)
+                    referenceCounts[exercise.id] =
+                        exercisePlannedExercises.count + exerciseLoggedSets.count
+                }
+            }
+
+            let canonical = matches.count == 1
+                ? matches[0]
+                : canonicalExercise(from: matches, referenceCounts: referenceCounts)
+
+            if canonical.name != entry.name {
+                canonical.name = entry.name
+                didChange = true
+            }
+            if canonical.muscleGroup != entry.muscleGroup {
+                canonical.muscleGroup = entry.muscleGroup
+                didChange = true
+            }
+            if canonical.equipment != entry.equipment {
+                canonical.equipment = entry.equipment
+                didChange = true
+            }
+
+            let duplicateIDs = Set(matches.lazy.map(\.id)).subtracting([canonical.id])
+            guard !duplicateIDs.isEmpty else { continue }
+
+            for plannedExercise in plannedExercises {
+                if let exerciseID = plannedExercise.exercise?.id,
+                   duplicateIDs.contains(exerciseID) {
+                    plannedExercise.exercise = canonical
+                    didChange = true
+                }
+            }
+
+            for loggedSet in loggedSets {
+                if let exerciseID = loggedSet.exercise?.id,
+                   duplicateIDs.contains(exerciseID) {
+                    loggedSet.exercise = canonical
+                    didChange = true
+                }
+            }
+
+            if recalculatePersonalRecords(for: canonical, loggedSets: loggedSets) {
+                didChange = true
+            }
+
+            for duplicate in matches where duplicate.id != canonical.id {
+                context.delete(duplicate)
+                didChange = true
+            }
+        }
+
+        return didChange
+    }
+
+    fileprivate static func normalizeInvalidRepTargets(context: ModelContext) throws -> Bool {
+        let exactType = PlannedRepTargetType.exact.rawValue
+        let rangeType = PlannedRepTargetType.range.rawValue
+        let failureType = PlannedRepTargetType.failure.rawValue
+        let invalidRepTarget = #Predicate<PlannedExercise> { plannedExercise in
+            plannedExercise.reps < 1 ||
+                plannedExercise.repRangeLowerBound < 1 ||
+                plannedExercise.repRangeUpperBound < plannedExercise.repRangeLowerBound ||
+                (
+                    plannedExercise.repTargetTypeRaw != exactType &&
+                        plannedExercise.repTargetTypeRaw != rangeType &&
+                        plannedExercise.repTargetTypeRaw != failureType
+                )
+        }
+        let descriptor = FetchDescriptor<PlannedExercise>(predicate: invalidRepTarget)
+        let plannedExercises = try context.fetch(descriptor)
+
+        var didChange = false
+        for plannedExercise in plannedExercises {
+            let normalizedReps = max(1, plannedExercise.reps)
+            if plannedExercise.reps != normalizedReps {
+                plannedExercise.reps = normalizedReps
+                didChange = true
+            }
+
+            let normalizedLowerBound = max(1, plannedExercise.repRangeLowerBound)
+            if plannedExercise.repRangeLowerBound != normalizedLowerBound {
+                plannedExercise.repRangeLowerBound = normalizedLowerBound
+                didChange = true
+            }
+
+            let normalizedUpperBound = max(normalizedLowerBound, plannedExercise.repRangeUpperBound)
+            if plannedExercise.repRangeUpperBound != normalizedUpperBound {
+                plannedExercise.repRangeUpperBound = normalizedUpperBound
+                didChange = true
+            }
+
+            if PlannedRepTargetType(rawValue: plannedExercise.repTargetTypeRaw) == nil {
+                plannedExercise.repTargetTypeRaw = PlannedRepTargetType.exact.rawValue
+                didChange = true
+            }
+        }
+
+        return didChange
+    }
+
+    fileprivate static func markSeeded() {
         UserDefaults.standard.set(true, forKey: seededKey)
     }
 
@@ -87,12 +192,11 @@ enum ExerciseLibrary {
 
     private static func canonicalExercise(
         from exercises: [Exercise],
-        plannedExercises: [PlannedExercise],
-        loggedSets: [LoggedSet]
+        referenceCounts: [UUID: Int]
     ) -> Exercise {
         exercises.max { lhs, rhs in
-            let lhsReferences = referenceCount(for: lhs, plannedExercises: plannedExercises, loggedSets: loggedSets)
-            let rhsReferences = referenceCount(for: rhs, plannedExercises: plannedExercises, loggedSets: loggedSets)
+            let lhsReferences = referenceCounts[lhs.id, default: 0]
+            let rhsReferences = referenceCounts[rhs.id, default: 0]
             if lhsReferences != rhsReferences {
                 return lhsReferences < rhsReferences
             }
@@ -103,28 +207,24 @@ enum ExerciseLibrary {
         }!
     }
 
-    private static func referenceCount(
-        for exercise: Exercise,
-        plannedExercises: [PlannedExercise],
-        loggedSets: [LoggedSet]
-    ) -> Int {
-        plannedExercises.filter { $0.exercise?.id == exercise.id }.count +
-            loggedSets.filter { $0.exercise?.id == exercise.id }.count
-    }
-
     private static func recalculatePersonalRecords(for exercise: Exercise, loggedSets: [LoggedSet]) -> Bool {
         let exerciseSets = loggedSets.filter { $0.exercise?.id == exercise.id }
         var didChange = false
 
-        for set in exerciseSets where set.isPersonalRecord {
-            set.isPersonalRecord = false
-            didChange = true
-        }
-
         let groupedByReps = Dictionary(grouping: exerciseSets) { $0.reps }
         for sets in groupedByReps.values {
-            if let best = sets.max(by: { $0.weight < $1.weight }), best.weight > 0 {
-                best.isPersonalRecord = true
+            let best = sets.reduce(nil as LoggedSet?) { currentBest, candidate in
+                guard candidate.weight > 0 else { return currentBest }
+                guard let currentBest else { return candidate }
+                return isPreferredPersonalRecordCandidate(candidate, over: currentBest)
+                    ? candidate
+                    : currentBest
+            }
+
+            for set in sets {
+                let shouldBePersonalRecord = set.id == best?.id
+                guard set.isPersonalRecord != shouldBePersonalRecord else { continue }
+                set.isPersonalRecord = shouldBePersonalRecord
                 didChange = true
             }
         }
@@ -141,6 +241,10 @@ enum ExerciseLibrary {
             self.name = ExerciseLibrary.normalizedName(name)
             self.muscleGroup = muscleGroup
             self.equipment = equipment
+        }
+
+        init(entry: (name: String, muscleGroup: MuscleGroup, equipment: Equipment)) {
+            self.init(name: entry.name, muscleGroup: entry.muscleGroup, equipment: entry.equipment)
         }
 
         init(exercise: Exercise) {
@@ -250,4 +354,31 @@ enum ExerciseLibrary {
         ("Turkish Get-Up",          .fullBody,   .kettlebell),
         ("Man Maker",               .fullBody,   .dumbbell),
     ]
+}
+
+@ModelActor
+actor ExerciseLibraryMaintenanceActor {
+    private static let logger = Logger(
+        subsystem: "com.matthewstone.liftly",
+        category: "StartupMaintenance"
+    )
+
+    func performMaintenance() -> Bool {
+        do {
+            let didReconcileExercises = try ExerciseLibrary.reconcile(context: modelContext)
+            let didNormalizeRepTargets = try ExerciseLibrary.normalizeInvalidRepTargets(context: modelContext)
+
+            if didReconcileExercises || didNormalizeRepTargets {
+                try modelContext.save()
+                Self.logger.notice("Completed deferred exercise-library and rep-target maintenance.")
+            }
+
+            ExerciseLibrary.markSeeded()
+            return true
+        } catch {
+            modelContext.rollback()
+            Self.logger.error("Deferred startup maintenance failed: \(String(describing: error), privacy: .public)")
+            return false
+        }
+    }
 }

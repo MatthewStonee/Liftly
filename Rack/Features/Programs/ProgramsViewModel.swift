@@ -12,10 +12,20 @@ final class ProgramsViewModel {
     }
 
     func setActive(_ program: Program, allPrograms: [Program], context: ModelContext) {
-        for p in allPrograms {
-            p.isActive = false
+        var didChange = false
+
+        for candidate in allPrograms where candidate.id != program.id && candidate.isActive {
+            candidate.isActive = false
+            didChange = true
         }
-        program.isActive = true
-        try? context.save()
+
+        if !program.isActive {
+            program.isActive = true
+            didChange = true
+        }
+
+        if didChange {
+            try? context.save()
+        }
     }
 }

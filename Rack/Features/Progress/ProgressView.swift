@@ -1,24 +1,25 @@
 import SwiftUI
 import SwiftData
 import Charts
+import Combine
 
 // MARK: - Progress Tab
 
 struct ProgressTabView: View {
-    @Query private var plannedExercises: [PlannedExercise]
-    @Query(sort: \LoggedSet.completedAt, order: .reverse) private var loggedSets: [LoggedSet]
+    @Environment(\.modelContext) private var context
+    @Environment(\.scenePhase) private var scenePhase
+    @Query(
+        filter: #Predicate<Program> { program in
+            program.isActive
+        },
+        sort: \Program.createdAt,
+        order: .reverse
+    )
+    private var activePrograms: [Program]
     @State private var viewModel = ProgressViewModel()
     @State private var selectedExercise: Exercise?
+    @State private var overviewRefreshTask: Task<Void, Never>?
     @AppStorage("weightUnit") private var weightUnit: WeightUnit = .lbs
-
-    private var overviewDataToken: [String] {
-        plannedExercises.map {
-            "planned:\($0.id):\($0.exercise?.id.uuidString ?? "nil"):\($0.exercise?.name ?? "nil")"
-        } +
-        loggedSets.map {
-            "set:\($0.id):\($0.exercise?.id.uuidString ?? "nil"):\($0.reps):\($0.weight):\($0.completedAt.timeIntervalSinceReferenceDate):\($0.isPersonalRecord)"
-        }
-    }
 
     var body: some View {
         NavigationStack {
@@ -37,15 +38,51 @@ struct ProgressTabView: View {
                 ExerciseProgressView(exercise: exercise)
             }
             .onAppear { refreshOverview() }
-            .onChange(of: overviewDataToken) { _, _ in refreshOverview() }
+            .onChange(of: activePrograms.first?.id) { _, _ in
+                refreshOverview()
+            }
+            .onChange(of: scenePhase) { _, newPhase in
+                if newPhase == .active {
+                    scheduleOverviewRefresh()
+                }
+            }
+            .onReceive(NotificationCenter.default.publisher(for: ModelContext.didSave)) { _ in
+                scheduleOverviewRefresh()
+            }
+            .onDisappear {
+                overviewRefreshTask?.cancel()
+            }
         }
     }
 
     private func refreshOverview() {
-        viewModel.refreshOverview(
-            plannedExercises: plannedExercises,
-            loggedSets: loggedSets
-        )
+        overviewRefreshTask?.cancel()
+        let activeProgram = activePrograms.first
+        let modelContainer = context.container
+        let currentViewModel = viewModel
+
+        overviewRefreshTask = Task { @MainActor in
+            await currentViewModel.refreshOverview(
+                activeProgram: activeProgram,
+                modelContainer: modelContainer
+            )
+        }
+    }
+
+    private func scheduleOverviewRefresh() {
+        overviewRefreshTask?.cancel()
+        let activeProgram = activePrograms.first
+        let modelContainer = context.container
+        let currentViewModel = viewModel
+
+        overviewRefreshTask = Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(200))
+            guard !Task.isCancelled else { return }
+            await currentViewModel.refreshOverview(
+                activeProgram: activeProgram,
+                modelContainer: modelContainer
+            )
+        }
     }
 
     private var backgroundGradient: some View {
@@ -85,14 +122,15 @@ struct ProgressTabView: View {
 
     private var exerciseList: some View {
         ScrollView {
-            VStack(spacing: 12) {
-                weeklyVolumeCard
+            GlassEffectContainer(spacing: 0) {
+                LazyVStack(spacing: 12) {
+                    weeklyVolumeCard
 
-                ForEach(viewModel.overview.programExercises) { exercise in
-                    ExerciseProgressRow(
-                        exercise: exercise,
-                        summary: viewModel.overview.summariesByExerciseID[exercise.id] ?? ExerciseProgressSummary()
-                    )
+                    ForEach(viewModel.overview.programExercises) { exercise in
+                        ExerciseProgressRow(
+                            exercise: exercise,
+                            summary: viewModel.overview.summariesByExerciseID[exercise.id] ?? ExerciseProgressSummary()
+                        )
                         .contentShape(Rectangle())
                         .onTapGesture {
                             selectedExercise = exercise
@@ -100,6 +138,7 @@ struct ProgressTabView: View {
                         .accessibilityElement()
                         .accessibilityLabel(exercise.name)
                         .accessibilityAddTraits(.isButton)
+                    }
                 }
             }
             .padding(.horizontal, 16)
@@ -208,11 +247,13 @@ struct ExerciseProgressRow: View {
 
 struct ExerciseProgressView: View {
     @Environment(\.modelContext) private var context
+    @Environment(\.scenePhase) private var scenePhase
     let exercise: Exercise
     @Query(sort: \LoggedSet.completedAt) private var loggedSets: [LoggedSet]
     @State private var viewModel = ProgressViewModel()
     @State private var showingQuickLog = false
     @State private var setToEdit: LoggedSet?
+    @State private var metricsRefreshTask: Task<Void, Never>?
     @Namespace private var pickerNamespace
     @AppStorage("weightUnit") private var weightUnit: WeightUnit = .lbs
 
@@ -227,25 +268,22 @@ struct ExerciseProgressView: View {
         )
     }
 
-    private var setDataToken: [String] {
-        loggedSets.map {
-            "\($0.id):\($0.reps):\($0.weight):\($0.completedAt.timeIntervalSinceReferenceDate):\($0.isPersonalRecord)"
-        }
-    }
-
     var body: some View {
         let metrics = viewModel.exerciseMetrics
         ScrollView {
-            VStack(spacing: 16) {
-                Text(exercise.name)
-                    .font(.system(size: 34, weight: .black))
-                    .foregroundStyle(.white)
-                    .tracking(-0.5)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                statsCard(pr: metrics.personalRecord, totalVol: metrics.totalVolume)
-                timeRangePicker
-                chartCard(chartPoints: metrics.chartPoints)
-                setHistoryCard(recentSets: metrics.recentSets, isEmpty: !metrics.hasFilteredSets)
+            GlassEffectContainer(spacing: 16) {
+                VStack(spacing: 16) {
+                    Text(exercise.name)
+                        .font(.system(size: 34, weight: .black))
+                        .foregroundStyle(.white)
+                        .tracking(-0.5)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    statsCard(pr: metrics.personalRecord, totalVol: metrics.totalVolume)
+                    timeRangePicker
+                    ExerciseProgressChartCard(chartPoints: metrics.chartPoints)
+                        .equatable()
+                    setHistoryCard(recentSets: metrics.recentSets, isEmpty: !metrics.hasFilteredSets)
+                }
             }
             .padding(.horizontal, 16)
             .padding(.top, 8)
@@ -290,16 +328,39 @@ struct ExerciseProgressView: View {
             QuickLogSheet(
                 exercise: exercise,
                 viewModel: viewModel,
-                loggedSets: loggedSets,
-                latestSet: viewModel.exerciseMetrics.sortedSetsDescending.first
+                latestSet: viewModel.exerciseMetrics.latestSet
             )
         }
         .sheet(item: $setToEdit) { set in
             EditLoggedSetSheet(set: set, viewModel: viewModel, loggedSets: loggedSets)
         }
         .onAppear { viewModel.refreshExerciseMetrics(with: loggedSets) }
-        .onChange(of: setDataToken) { _, _ in
-            viewModel.refreshExerciseMetrics(with: loggedSets)
+        .onChange(of: scenePhase) { _, newPhase in
+            if newPhase == .active {
+                scheduleMetricsRefresh()
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: ModelContext.didSave)) { _ in
+            scheduleMetricsRefresh()
+        }
+        .onDisappear {
+            metricsRefreshTask?.cancel()
+        }
+    }
+
+    private func scheduleMetricsRefresh() {
+        metricsRefreshTask?.cancel()
+        let selectedExercise = exercise
+        let modelContext = context
+        let currentViewModel = viewModel
+
+        metricsRefreshTask = Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(200))
+            guard !Task.isCancelled else { return }
+            currentViewModel.refreshExerciseMetrics(
+                for: selectedExercise,
+                context: modelContext
+            )
         }
     }
 
@@ -318,15 +379,18 @@ struct ExerciseProgressView: View {
             HStack(spacing: 8) {
                 StatBadge(
                     value: pr.map { "\($0.weight.formattedWeight(unit: weightUnit)) \(weightUnit.symbol)" } ?? "\u{2014}",
-                    label: "PR Weight"
+                    label: "PR Weight",
+                    surface: .embedded
                 )
                 StatBadge(
                     value: pr.map { "\($0.reps) reps" } ?? "\u{2014}",
-                    label: "At PR"
+                    label: "At PR",
+                    surface: .embedded
                 )
                 StatBadge(
                     value: totalVol > 0 ? String(format: "%.0f", weightUnit.display(totalVol)) : "\u{2014}",
-                    label: "Total Vol. (\(weightUnit.symbol))"
+                    label: "Total Vol. (\(weightUnit.symbol))",
+                    surface: .embedded
                 )
             }
         }
@@ -337,16 +401,13 @@ struct ExerciseProgressView: View {
             HStack(spacing: 0) {
                 ForEach(ProgressViewModel.TimeRange.allCases, id: \.self) { range in
                     Button {
-                        withAnimation(.spring(response: 0.3, dampingFraction: 0.75)) {
-                            viewModel.updateTimeRange(range, sets: loggedSets)
-                        }
+                        viewModel.updateTimeRange(range)
                     } label: {
                         Text(range.rawValue)
                             .font(.subheadline.bold())
                             .frame(maxWidth: .infinity)
                             .padding(.vertical, 8)
                             .foregroundStyle(viewModel.timeRange == range ? Color.white : Color.secondary.opacity(0.7))
-                            .animation(.easeOut(duration: 0.2), value: viewModel.timeRange)
                             .background {
                                 if viewModel.timeRange == range {
                                     RoundedRectangle(cornerRadius: 10)
@@ -358,83 +419,7 @@ struct ExerciseProgressView: View {
                     .buttonStyle(.plain)
                 }
             }
-        }
-    }
-
-    private func chartCard(chartPoints: [(Date, Double)]) -> some View {
-        GlassCard {
-            VStack(alignment: .leading, spacing: 12) {
-                Text("Max Weight Over Time")
-                    .font(.subheadline.bold())
-                    .foregroundStyle(.secondary)
-
-                Group {
-                    if chartPoints.count < 2 {
-                        VStack(spacing: 8) {
-                            Image(systemName: "chart.line.uptrend.xyaxis")
-                                .font(.system(size: 36))
-                                .foregroundStyle(.secondary)
-                            Text("Not enough data yet")
-                                .font(.subheadline)
-                                .foregroundStyle(.secondary)
-                            Text("Log at least 2 sets on different days to see your chart.")
-                                .font(.caption)
-                                .foregroundStyle(.tertiary)
-                                .multilineTextAlignment(.center)
-                        }
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 24)
-                    } else {
-                        Chart {
-                            ForEach(chartPoints, id: \.0) { date, weight in
-                                LineMark(
-                                    x: .value("Date", date),
-                                    y: .value("Weight", weight)
-                                )
-                                .foregroundStyle(Color.blue)
-                                .interpolationMethod(.catmullRom)
-
-                                AreaMark(
-                                    x: .value("Date", date),
-                                    y: .value("Weight", weight)
-                                )
-                                .foregroundStyle(
-                                    LinearGradient(
-                                        colors: [.blue.opacity(0.3), .clear],
-                                        startPoint: .top,
-                                        endPoint: .bottom
-                                    )
-                                )
-                                .interpolationMethod(.catmullRom)
-
-                                PointMark(
-                                    x: .value("Date", date),
-                                    y: .value("Weight", weight)
-                                )
-                                .foregroundStyle(Color.blue)
-                                .symbolSize(30)
-                            }
-                        }
-                        .chartXAxis {
-                            AxisMarks(values: .stride(by: .month)) {
-                                AxisGridLine().foregroundStyle(.white.opacity(0.08))
-                                AxisTick().foregroundStyle(.clear)
-                                AxisValueLabel(format: .dateTime.month(.abbreviated))
-                                    .foregroundStyle(.secondary)
-                            }
-                        }
-                        .chartYAxis {
-                            AxisMarks {
-                                AxisGridLine().foregroundStyle(.white.opacity(0.08))
-                                AxisTick().foregroundStyle(.clear)
-                                AxisValueLabel().foregroundStyle(.secondary)
-                            }
-                        }
-                        .frame(height: 200)
-                    }
-                }
-                .transition(.opacity.combined(with: .scale(scale: 0.97, anchor: .top)))
-            }
+            .animation(.spring(response: 0.3, dampingFraction: 0.75), value: viewModel.timeRange)
         }
     }
 
@@ -490,7 +475,86 @@ struct ExerciseProgressView: View {
                     }
                 }
                 }
-                .transition(.opacity.combined(with: .scale(scale: 0.98, anchor: .top)))
+            }
+        }
+    }
+}
+
+private struct ExerciseProgressChartCard: View, Equatable {
+    let chartPoints: [ExerciseProgressChartPoint]
+
+    var body: some View {
+        GlassCard {
+            VStack(alignment: .leading, spacing: 12) {
+                Text("Max Weight Over Time")
+                    .font(.subheadline.bold())
+                    .foregroundStyle(.secondary)
+
+                if chartPoints.count < 2 {
+                    VStack(spacing: 8) {
+                        Image(systemName: "chart.line.uptrend.xyaxis")
+                            .font(.system(size: 36))
+                            .foregroundStyle(.secondary)
+                        Text("Not enough data yet")
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                        Text("Log sets in at least 2 chart periods to see your trend.")
+                            .font(.caption)
+                            .foregroundStyle(.tertiary)
+                            .multilineTextAlignment(.center)
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 24)
+                } else {
+                    Chart {
+                        ForEach(chartPoints) { point in
+                            LineMark(
+                                x: .value("Date", point.date),
+                                y: .value("Weight", point.weight)
+                            )
+                            .foregroundStyle(Color.blue)
+                            .interpolationMethod(.catmullRom)
+
+                            AreaMark(
+                                x: .value("Date", point.date),
+                                y: .value("Weight", point.weight)
+                            )
+                            .foregroundStyle(
+                                LinearGradient(
+                                    colors: [.blue.opacity(0.3), .clear],
+                                    startPoint: .top,
+                                    endPoint: .bottom
+                                )
+                            )
+                            .interpolationMethod(.catmullRom)
+
+                            if chartPoints.count <= 60 {
+                                PointMark(
+                                    x: .value("Date", point.date),
+                                    y: .value("Weight", point.weight)
+                                )
+                                .foregroundStyle(Color.blue)
+                                .symbolSize(30)
+                            }
+                        }
+                    }
+                    .chartXAxis {
+                        AxisMarks(values: .stride(by: .month)) {
+                            AxisGridLine().foregroundStyle(.white.opacity(0.08))
+                            AxisTick().foregroundStyle(.clear)
+                            AxisValueLabel(format: .dateTime.month(.abbreviated))
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                    .chartYAxis {
+                        AxisMarks {
+                            AxisGridLine().foregroundStyle(.white.opacity(0.08))
+                            AxisTick().foregroundStyle(.clear)
+                            AxisValueLabel().foregroundStyle(.secondary)
+                        }
+                    }
+                    .frame(height: 200)
+                }
             }
         }
     }
@@ -504,7 +568,6 @@ struct QuickLogSheet: View {
 
     let exercise: Exercise
     let viewModel: ProgressViewModel
-    let loggedSets: [LoggedSet]
     let latestSet: LoggedSet?
 
     @State private var weightText: String = ""
@@ -624,7 +687,6 @@ struct QuickLogSheet: View {
             }
         }
         .onAppear {
-            viewModel.refreshPersonalRecordCache(with: loggedSets)
             prefill()
         }
     }
@@ -791,14 +853,21 @@ struct EditLoggedSetSheet: View {
         let newWeight = weightUnit.store(Double(weightText) ?? 0)
         guard let exercise = set.exercise else { return }
 
-        set.weight = newWeight
-        set.reps = reps
-        set.completedAt = date
+        if set.weight != newWeight {
+            set.weight = newWeight
+        }
+        if set.reps != reps {
+            set.reps = reps
+        }
+        if set.completedAt != date {
+            set.completedAt = date
+        }
 
         viewModel.recalculatePersonalRecordsAfterEdit(
             set,
             for: exercise,
             originalReps: originalReps,
+            originalWeight: originalWeight,
             in: loggedSets
         )
 
