@@ -12,31 +12,19 @@ Liftly is an iOS fitness and workout programming app built with SwiftUI. Helps u
 - Prioritize following Apple HIG; Ask when it may not be ideal
 - Fitness-friendly: large tap targets, easy one-handed use
 
-## Data Models
-SwiftData `@Model` classes in `Rack/Models/`.
-
-- `Exercise` — name, `MuscleGroup` enum (with `.color` + `.sfSymbol`), `Equipment` enum
-- `Program` → `WorkoutTemplate` → `PlannedExercise` (cascade delete; each level has `orderIndex` for drag-to-reorder)
-- `ExerciseLibrary` — seeds 60 exercises on first launch via a `"exerciseLibrarySeeded"` UserDefaults flag. To re-seed during dev: flip the flag or reset the app. Don't hand-add exercises thinking the library is empty.
-
-### Invariants (do not break)
+## Invariants (do not break)
 - **Weights are always stored in lbs internally.** UI converts via `WeightUnit.display(_)` / `WeightUnit.store(_)` from `Rack/Shared/Extensions.swift`. User preference lives in `@AppStorage("weightUnit")`. Any new weight-facing view must go through these helpers — never read/write raw doubles to the user.
 - **`LoggedSet.session` is optional.** This is intentional so Quick Log can create a `LoggedSet` without a `WorkoutSession`. Code that filters "sets belonging to a session" must handle nil.
 - **PRs are tracked per exercise × per rep count**, not just per exercise. A one-time `backfillPersonalRecords()` runs on app launch to mark historical PRs. New/edit/delete of a `LoggedSet` must go through `ProgressViewModel` methods so the `isPersonalRecord` flag is demoted/promoted correctly.
 
 ## Shared Utilities
-Check `Rack/Shared/` before building a new card/button/row.
-- `GlassCard`, `GlassButton`, `PrimaryButton`, `StatBadge`, `FilterChip` — reusable glass UI components
-- `ReorderableForEach` — drag-to-reorder list utility
-- `UndoToast` — undo toast modifier
-- `Extensions.swift` — `WeightUnit` enum, Double formatting helpers
+Check `Rack/Shared/` and nearby feature components before creating new UI components.
 
 ### Patterns to reuse
 - **Undo-deletion**: schedule deletion via `Task` with ~4s delay, cancelable from `UndoToast`. See `ProgramsView` and `ProgramDetailView`. Destructive actions should follow this pattern, not delete immediately.
 - **Haptics**: `.sensoryFeedback(.impact, ...)` for drag/toast; `UINotificationFeedbackGenerator().notificationOccurred(.success)` for successful logs. Match the surrounding code when adding new interactions.
 
 ## Gotchas
-- Custom `ProgressView` struct shadows SwiftUI built-in — our type is `ProgressTabView`
 - `Button(_:systemImage:role:)` shorthand hits SwiftUI overload resolution bugs — always use explicit label form
 - `.glassEffect(.regular.interactive())` on a Button label intercepts taps and breaks the button action — do NOT use `.interactive()` on label content inside a `Button`; use a `ButtonStyle` instead
 - Sheet presentation state (`isPresented`) must be plain `@State Bool` on the view — do NOT store it in an `@Observable` ViewModel. After sheet dismissal, the binding chain through `@Observable` can silently fail to re-enable the triggering control.
@@ -50,7 +38,7 @@ Check `Rack/Shared/` before building a new card/button/row.
 - Don't hard-code exercise names or data — seed via `ExerciseLibrary` instead
 
 ## Testing
-No tests currently. Don't invent speculative tests — if a change genuinely needs coverage, flag it and ask before adding a test target.
+Ask before adding a test target.
 
 ## Build Configuration
 - Scheme: `Rack`
