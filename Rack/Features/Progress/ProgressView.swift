@@ -254,8 +254,11 @@ struct ExerciseProgressView: View {
     @State private var showingQuickLog = false
     @State private var setToEdit: LoggedSet?
     @State private var metricsRefreshTask: Task<Void, Never>?
+    @State private var persistenceAlert: PersistenceAlert?
+    @State private var showingPersistenceAlert = false
     @Namespace private var pickerNamespace
     @AppStorage("weightUnit") private var weightUnit: WeightUnit = .lbs
+    @Environment(\.locale) private var locale
 
     init(exercise: Exercise) {
         self.exercise = exercise
@@ -328,12 +331,18 @@ struct ExerciseProgressView: View {
             QuickLogSheet(
                 exercise: exercise,
                 viewModel: viewModel,
-                latestSet: viewModel.exerciseMetrics.latestSet
+                latestSet: viewModel.exerciseMetrics.latestSet,
+                weightInput: WeightInput(unit: weightUnit, locale: locale)
             )
         }
         .sheet(item: $setToEdit) { set in
-            EditLoggedSetSheet(set: set, viewModel: viewModel, loggedSets: loggedSets)
+            EditLoggedSetSheet(
+                set: set,
+                viewModel: viewModel,
+                weightInput: WeightInput(unit: weightUnit, locale: locale)
+            )
         }
+        .persistenceAlert(isPresented: $showingPersistenceAlert, alert: persistenceAlert)
         .onAppear { viewModel.refreshExerciseMetrics(with: loggedSets) }
         .onChange(of: scenePhase) { _, newPhase in
             if newPhase == .active {
@@ -365,11 +374,10 @@ struct ExerciseProgressView: View {
     }
 
     private func deleteSet(_ set: LoggedSet) {
-        if set.isPersonalRecord, let exercise = set.exercise {
-            viewModel.recalculatePersonalRecord(for: exercise, reps: set.reps, in: loggedSets, excluding: set)
+        if case .failure(let error) = viewModel.deleteSet(set, context: context) {
+            persistenceAlert = PersistenceAlert(title: "Couldn't Delete Set", error: error)
+            showingPersistenceAlert = true
         }
-        context.delete(set)
-        try? context.save()
     }
 
     // MARK: Cards
@@ -568,12 +576,35 @@ struct QuickLogSheet: View {
 
     let exercise: Exercise
     let viewModel: ProgressViewModel
-    let latestSet: LoggedSet?
 
-    @State private var weightText: String = ""
-    @State private var reps: Int = 5
+    @State private var weightDraft: WeightDraft
+    @State private var reps: Int
     @State private var date: Date = .now
-    @AppStorage("weightUnit") private var weightUnit: WeightUnit = .lbs
+    @State private var saveAlert: PersistenceAlert?
+    @State private var showingSaveAlert = false
+
+    /// Captures the display unit and locale when the sheet opens, and prefills from the
+    /// latest set so an untouched weight logs the same stored value.
+    init(exercise: Exercise, viewModel: ProgressViewModel, latestSet: LoggedSet?, weightInput: WeightInput) {
+        self.exercise = exercise
+        self.viewModel = viewModel
+        let prefilledWeight = latestSet.flatMap { $0.weight > 0 ? $0.weight : nil }
+        _weightDraft = State(initialValue: WeightDraft(input: weightInput, pounds: prefilledWeight))
+        _reps = State(initialValue: latestSet?.reps ?? 5)
+    }
+
+    private var blankWeight: WeightDraft.BlankValue {
+        exercise.equipment == .bodyweight ? .zero : .required
+    }
+
+    private var resolvedWeight: Double? {
+        guard case .success(let pounds?) = weightDraft.resolvedPounds(whenBlank: blankWeight) else { return nil }
+        return pounds
+    }
+
+    private var weightMessage: String? {
+        weightDraft.validationMessage(whenBlank: blankWeight)
+    }
 
     var body: some View {
         NavigationStack {
@@ -595,10 +626,10 @@ struct QuickLogSheet: View {
                 .glassBackground()
 
                 VStack(alignment: .leading, spacing: 8) {
-                    Text("Weight (\(weightUnit.symbol))")
+                    Text("Weight (\(weightDraft.input.unit.symbol))")
                         .font(.subheadline.bold())
                         .foregroundStyle(.secondary)
-                    TextField("0", text: $weightText)
+                    TextField("0", text: $weightDraft.text)
                         .keyboardType(.decimalPad)
                         .font(.title2.bold())
                         .multilineTextAlignment(.center)
@@ -606,8 +637,14 @@ struct QuickLogSheet: View {
                         .background(Color.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 14))
                         .overlay(
                             RoundedRectangle(cornerRadius: 14)
-                                .strokeBorder(.white.opacity(0.1), lineWidth: 0.5)
+                                .strokeBorder(
+                                    weightMessage == nil ? Color.white.opacity(0.1) : Color.red.opacity(0.7),
+                                    lineWidth: weightMessage == nil ? 0.5 : 1
+                                )
                         )
+                    if let weightMessage {
+                        WeightValidationMessage(weightMessage)
+                    }
                 }
 
                 VStack(alignment: .leading, spacing: 8) {
@@ -666,7 +703,7 @@ struct QuickLogSheet: View {
                 PrimaryButton("Log Set", icon: "checkmark") {
                     logSet()
                 }
-                .disabled(weightText.isEmpty && exercise.equipment != .bodyweight)
+                .disabled(resolvedWeight == nil)
             }
             .padding(20)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -686,29 +723,20 @@ struct QuickLogSheet: View {
                 }
             }
         }
-        .onAppear {
-            prefill()
-        }
-    }
-
-    private func prefill() {
-        if let last = latestSet {
-            if last.weight > 0 {
-                weightText = last.weight.formattedWeight(unit: weightUnit)
-            }
-            reps = last.reps
-        }
+        .persistenceAlert(isPresented: $showingSaveAlert, alert: saveAlert)
     }
 
     private func logSet() {
-        let weight = weightUnit.store(Double(weightText) ?? 0)
-        let set = LoggedSet(exercise: exercise, reps: reps, weight: weight)
-        set.completedAt = date
-        viewModel.assignPersonalRecordStatus(to: set, for: exercise)
-        context.insert(set)
-        try? context.save()
-        UINotificationFeedbackGenerator().notificationOccurred(.success)
-        dismiss()
+        guard let weight = resolvedWeight else { return }
+
+        switch viewModel.logSet(for: exercise, reps: reps, weight: weight, completedAt: date, context: context) {
+        case .success:
+            UINotificationFeedbackGenerator().notificationOccurred(.success)
+            dismiss()
+        case .failure(let error):
+            saveAlert = PersistenceAlert(title: "Couldn't Log Set", error: error)
+            showingSaveAlert = true
+        }
     }
 }
 
@@ -717,16 +745,41 @@ struct QuickLogSheet: View {
 struct EditLoggedSetSheet: View {
     @Environment(\.modelContext) private var context
     @Environment(\.dismiss) private var dismiss
-    @Bindable var set: LoggedSet
+    let set: LoggedSet
     let viewModel: ProgressViewModel
-    let loggedSets: [LoggedSet]
 
-    @State private var weightText: String = ""
-    @State private var reps: Int = 1
-    @State private var date: Date = .now
-    @State private var originalReps: Int = 0
-    @State private var originalWeight: Double = 0
-    @AppStorage("weightUnit") private var weightUnit: WeightUnit = .lbs
+    @State private var weightDraft: WeightDraft
+    @State private var reps: Int
+    @State private var date: Date
+    @State private var saveAlert: PersistenceAlert?
+    @State private var showingSaveAlert = false
+
+    /// Captures the display unit and locale when the sheet opens. An untouched weight
+    /// saves the set's original stored value.
+    init(set: LoggedSet, viewModel: ProgressViewModel, weightInput: WeightInput) {
+        self.set = set
+        self.viewModel = viewModel
+        _weightDraft = State(initialValue: WeightDraft(
+            input: weightInput,
+            pounds: set.weight,
+            blankWhenZero: set.exercise?.equipment == .bodyweight
+        ))
+        _reps = State(initialValue: set.reps)
+        _date = State(initialValue: set.completedAt)
+    }
+
+    private var blankWeight: WeightDraft.BlankValue {
+        self.set.exercise?.equipment == .bodyweight ? .zero : .required
+    }
+
+    private var resolvedWeight: Double? {
+        guard case .success(let pounds?) = weightDraft.resolvedPounds(whenBlank: blankWeight) else { return nil }
+        return pounds
+    }
+
+    private var weightMessage: String? {
+        weightDraft.validationMessage(whenBlank: blankWeight)
+    }
 
     var body: some View {
         NavigationStack {
@@ -750,10 +803,10 @@ struct EditLoggedSetSheet: View {
                 }
 
                 VStack(alignment: .leading, spacing: 8) {
-                    Text("Weight (\(weightUnit.symbol))")
+                    Text("Weight (\(weightDraft.input.unit.symbol))")
                         .font(.subheadline.bold())
                         .foregroundStyle(.secondary)
-                    TextField("0", text: $weightText)
+                    TextField("0", text: $weightDraft.text)
                         .keyboardType(.decimalPad)
                         .font(.title2.bold())
                         .multilineTextAlignment(.center)
@@ -761,8 +814,14 @@ struct EditLoggedSetSheet: View {
                         .background(Color.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 14))
                         .overlay(
                             RoundedRectangle(cornerRadius: 14)
-                                .strokeBorder(.white.opacity(0.1), lineWidth: 0.5)
+                                .strokeBorder(
+                                    weightMessage == nil ? Color.white.opacity(0.1) : Color.red.opacity(0.7),
+                                    lineWidth: weightMessage == nil ? 0.5 : 1
+                                )
                         )
+                    if let weightMessage {
+                        WeightValidationMessage(weightMessage)
+                    }
                 }
 
                 VStack(alignment: .leading, spacing: 8) {
@@ -821,6 +880,7 @@ struct EditLoggedSetSheet: View {
                 PrimaryButton("Save Changes", icon: "checkmark") {
                     saveChanges()
                 }
+                .disabled(resolvedWeight == nil)
             }
             .padding(20)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -840,38 +900,18 @@ struct EditLoggedSetSheet: View {
                 }
             }
         }
-        .onAppear {
-            weightText = set.weight > 0 ? set.weight.formattedWeight(unit: weightUnit) : ""
-            reps = set.reps
-            date = set.completedAt
-            originalReps = set.reps
-            originalWeight = set.weight
-        }
+        .persistenceAlert(isPresented: $showingSaveAlert, alert: saveAlert)
     }
 
     private func saveChanges() {
-        let newWeight = weightUnit.store(Double(weightText) ?? 0)
-        guard let exercise = set.exercise else { return }
+        guard let weight = resolvedWeight else { return }
 
-        if set.weight != newWeight {
-            set.weight = newWeight
+        switch viewModel.updateSet(set, reps: reps, weight: weight, completedAt: date, context: context) {
+        case .success:
+            dismiss()
+        case .failure(let error):
+            saveAlert = PersistenceAlert(title: "Couldn't Save Set", error: error)
+            showingSaveAlert = true
         }
-        if set.reps != reps {
-            set.reps = reps
-        }
-        if set.completedAt != date {
-            set.completedAt = date
-        }
-
-        viewModel.recalculatePersonalRecordsAfterEdit(
-            set,
-            for: exercise,
-            originalReps: originalReps,
-            originalWeight: originalWeight,
-            in: loggedSets
-        )
-
-        try? context.save()
-        dismiss()
     }
 }

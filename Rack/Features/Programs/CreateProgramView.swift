@@ -5,10 +5,19 @@ struct CreateProgramView: View {
     @Environment(\.modelContext) private var context
     @Environment(\.dismiss) private var dismiss
 
-    var existingProgram: Program?
+    let existingProgram: Program?
 
-    @State private var name = ""
-    @State private var description = ""
+    @State private var viewModel = ProgramsViewModel()
+    @State private var name: String
+    @State private var description: String
+    @State private var saveAlert: PersistenceAlert?
+    @State private var showingSaveAlert = false
+
+    init(existingProgram: Program? = nil) {
+        self.existingProgram = existingProgram
+        _name = State(initialValue: existingProgram?.name ?? "")
+        _description = State(initialValue: existingProgram?.programDescription ?? "")
+    }
 
     private var isEditing: Bool { existingProgram != nil }
 
@@ -64,30 +73,29 @@ struct CreateProgramView: View {
                         .foregroundStyle(.secondary)
                 }
             }
-            .onAppear {
-                if let existingProgram {
-                    name = existingProgram.name
-                    description = existingProgram.programDescription
-                }
-            }
         }
+        .persistenceAlert(isPresented: $showingSaveAlert, alert: saveAlert)
     }
 
     private func createProgram() {
-        let trimmed = name.trimmingCharacters(in: .whitespaces)
-        guard !trimmed.isEmpty else { return }
-        let program = Program(name: trimmed, description: description.trimmingCharacters(in: .whitespaces))
-        context.insert(program)
-        try? context.save()
-        dismiss()
+        switch viewModel.createProgram(name: name, description: description, context: context) {
+        case .success:
+            dismiss()
+        case .failure(let error):
+            saveAlert = PersistenceAlert(title: "Couldn't Create Program", error: error)
+            showingSaveAlert = true
+        }
     }
 
     private func saveChanges() {
-        let trimmed = name.trimmingCharacters(in: .whitespaces)
-        guard !trimmed.isEmpty, let existingProgram else { return }
-        existingProgram.name = trimmed
-        existingProgram.programDescription = description.trimmingCharacters(in: .whitespaces)
-        try? context.save()
-        dismiss()
+        guard let existingProgram else { return }
+
+        switch viewModel.updateProgram(existingProgram, name: name, description: description, context: context) {
+        case .success:
+            dismiss()
+        case .failure(let error):
+            saveAlert = PersistenceAlert(title: "Couldn't Save Program", error: error)
+            showingSaveAlert = true
+        }
     }
 }

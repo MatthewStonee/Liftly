@@ -13,6 +13,9 @@ struct WorkoutTemplateDetailView: View {
     @State private var isReorderMode = false
     @State private var pendingDeleteExercise: PlannedExercise?
     @State private var exerciseDeleteTask: Task<Void, Never>?
+    @State private var persistenceAlert: PersistenceAlert?
+    @State private var showingPersistenceAlert = false
+    @Environment(PersistenceAlertCenter.self) private var alertCenter: PersistenceAlertCenter?
 
     var body: some View {
         let visibleExercises = workout.plannedExercisesList
@@ -32,7 +35,7 @@ struct WorkoutTemplateDetailView: View {
                             items: visibleExercises,
                             isEnabled: isReorderMode,
                             onCommitOrder: { orderedIDs in
-                                viewModel.reorderExercises(in: workout, orderedIDs: orderedIDs, context: context)
+                                commitExerciseOrder(orderedIDs)
                             }
                         ) { planned, dragHandle in
                             PlannedExerciseRow(
@@ -124,6 +127,7 @@ struct WorkoutTemplateDetailView: View {
                 pendingDeleteExercise = nil
             }
         )
+        .persistenceAlert(isPresented: $showingPersistenceAlert, alert: persistenceAlert)
     }
 
     private var emptyExercisesState: some View {
@@ -145,30 +149,35 @@ struct WorkoutTemplateDetailView: View {
         }
     }
 
-    private func addExercise(_ exercise: Exercise) {
-        let planned = PlannedExercise(
-            exercise: exercise,
-            sets: 3,
-            reps: PlannedRepTargetDefaults.exactReps,
-            repTargetType: plannedRepTargetDefault,
-            repRangeLowerBound: PlannedRepTargetDefaults.rangeLowerBound,
-            repRangeUpperBound: PlannedRepTargetDefaults.rangeUpperBound,
-            orderIndex: workout.plannedExercisesList.count
-        )
-        planned.workoutTemplate = workout
-        context.insert(planned)
+    /// Adds the picked exercise. The picker shows failures and stays open for another try.
+    private func addExercise(_ exercise: Exercise) -> Result<Void, PersistenceCommandError> {
+        viewModel.addExercise(exercise, to: workout, repTargetType: plannedRepTargetDefault, context: context)
+            .map { _ in }
+    }
+
+    private func commitExerciseOrder(_ orderedIDs: [UUID]) {
+        if case .failure(let error) = viewModel.reorderExercises(in: workout, orderedIDs: orderedIDs, context: context) {
+            persistenceAlert = PersistenceAlert(title: "Couldn't Save Order", error: error)
+            showingPersistenceAlert = true
+        }
     }
 
     private func deletePlannedExercise(_ planned: PlannedExercise) {
         exitReorderMode()
         exerciseDeleteTask?.cancel()
         pendingDeleteExercise = planned
+        let viewModel = viewModel
+        let context = context
+        let alertCenter = alertCenter
+
         exerciseDeleteTask = Task {
             try? await Task.sleep(for: .seconds(4))
             guard !Task.isCancelled else { return }
             await MainActor.run {
-                planned.workoutTemplate = nil
-                context.delete(planned)
+                // Report at the app level so the failure stays visible after navigation.
+                if case .failure(let error) = viewModel.deletePlannedExercise(planned, context: context) {
+                    alertCenter?.report(PersistenceAlert(title: "Couldn't Delete Exercise", error: error))
+                }
                 pendingDeleteExercise = nil
             }
         }
@@ -197,6 +206,7 @@ struct PlannedExerciseRow: View {
     let onDelete: () -> Void
     @State private var showingEdit = false
     @AppStorage("weightUnit") private var weightUnit: WeightUnit = .lbs
+    @Environment(\.locale) private var locale
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -259,7 +269,10 @@ struct PlannedExerciseRow: View {
         .glassBackground()
         .accessibilityLabel(planned.exercise?.name ?? "Exercise")
         .sheet(isPresented: $showingEdit) {
-            EditPlannedExerciseView(planned: planned)
+            EditPlannedExerciseView(
+                planned: planned,
+                weightInput: WeightInput(unit: weightUnit, locale: locale)
+            )
         }
     }
 }
@@ -267,9 +280,17 @@ struct PlannedExerciseRow: View {
 struct RenameWorkoutDaySheet: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.modelContext) private var context
-    @Bindable var workout: WorkoutTemplate
-    @State private var name: String = ""
+    let workout: WorkoutTemplate
+    @State private var viewModel = WorkoutTemplateDetailViewModel()
+    @State private var name: String
+    @State private var saveAlert: PersistenceAlert?
+    @State private var showingSaveAlert = false
     @FocusState private var isFocused: Bool
+
+    init(workout: WorkoutTemplate) {
+        self.workout = workout
+        _name = State(initialValue: workout.name)
+    }
 
     var body: some View {
         NavigationStack {
@@ -311,32 +332,58 @@ struct RenameWorkoutDaySheet: View {
                 }
             }
             .onAppear {
-                name = workout.name
                 isFocused = true
             }
         }
+        .persistenceAlert(isPresented: $showingSaveAlert, alert: saveAlert)
     }
 
     private func save() {
-        let trimmed = name.trimmingCharacters(in: .whitespaces)
-        guard !trimmed.isEmpty else { return }
-        workout.name = trimmed
-        dismiss()
+        switch viewModel.renameWorkout(workout, to: name, context: context) {
+        case .success:
+            dismiss()
+        case .failure(let error):
+            saveAlert = PersistenceAlert(title: "Couldn't Rename Workout Day", error: error)
+            showingSaveAlert = true
+        }
     }
 }
 
 struct EditPlannedExerciseView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.modelContext) private var context
-    @Bindable var planned: PlannedExercise
+    let planned: PlannedExercise
 
-    @State private var sets: Int = 3
-    @State private var repTargetType: PlannedRepTargetType = .exact
-    @State private var exactReps: Int = PlannedRepTargetDefaults.exactReps
-    @State private var rangeLowerBound: Int = PlannedRepTargetDefaults.rangeLowerBound
-    @State private var rangeUpperBound: Int = PlannedRepTargetDefaults.rangeUpperBound
-    @State private var weight: String = ""
-    @AppStorage("weightUnit") private var weightUnit: WeightUnit = .lbs
+    @State private var viewModel = WorkoutTemplateDetailViewModel()
+    @State private var sets: Int
+    @State private var repTargetType: PlannedRepTargetType
+    @State private var exactReps: Int
+    @State private var rangeLowerBound: Int
+    @State private var rangeUpperBound: Int
+    @State private var weightDraft: WeightDraft
+    @State private var saveAlert: PersistenceAlert?
+    @State private var showingSaveAlert = false
+
+    /// Captures the display unit and locale when the sheet opens. An untouched target
+    /// weight saves the original stored value.
+    init(planned: PlannedExercise, weightInput: WeightInput) {
+        self.planned = planned
+        _sets = State(initialValue: planned.sets)
+        _repTargetType = State(initialValue: planned.repTargetType)
+        _exactReps = State(initialValue: planned.exactRepTarget)
+        let repRange = planned.repRange
+        _rangeLowerBound = State(initialValue: repRange.lowerBound)
+        _rangeUpperBound = State(initialValue: repRange.upperBound)
+        _weightDraft = State(initialValue: WeightDraft(input: weightInput, pounds: planned.targetWeight))
+    }
+
+    private var resolvedTargetWeight: Result<Double?, WeightInputError> {
+        weightDraft.resolvedPounds(whenBlank: .noWeight)
+    }
+
+    private var weightMessage: String? {
+        weightDraft.validationMessage(whenBlank: .noWeight)
+    }
 
     var body: some View {
         NavigationStack {
@@ -368,18 +415,28 @@ struct EditPlannedExerciseView: View {
                     }
 
                     VStack(alignment: .leading, spacing: 8) {
-                        Text("Target Weight (\(weightUnit.symbol))")
+                        Text("Target Weight (\(weightDraft.input.unit.symbol))")
                             .font(.subheadline.bold())
                             .foregroundStyle(.secondary)
-                        TextField("Optional", text: $weight)
+                        TextField("Optional", text: $weightDraft.text)
                             .keyboardType(.decimalPad)
                             .padding(14)
                             .background(Color.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 14))
+                            .overlay {
+                                if weightMessage != nil {
+                                    RoundedRectangle(cornerRadius: 14)
+                                        .strokeBorder(Color.red.opacity(0.7), lineWidth: 1)
+                                }
+                            }
+                        if let weightMessage {
+                            WeightValidationMessage(weightMessage)
+                        }
                     }
 
                     Spacer()
 
                     PrimaryButton("Save") { save() }
+                        .disabled(weightMessage != nil)
                 }
                 .padding(20)
             }
@@ -390,21 +447,11 @@ struct EditPlannedExerciseView: View {
                     Button("Cancel") { dismiss() }.foregroundStyle(.secondary)
                 }
             }
-            .onAppear {
-                sets = planned.sets
-                repTargetType = planned.repTargetType
-                exactReps = planned.exactRepTarget
-                let repRange = planned.repRange
-                rangeLowerBound = repRange.lowerBound
-                rangeUpperBound = repRange.upperBound
-                if let w = planned.targetWeight {
-                    weight = w.formattedWeight(unit: weightUnit)
-                }
-            }
             .onChange(of: repTargetType) { _, newValue in
                 normalizeDraftRepTarget(for: newValue)
             }
         }
+        .persistenceAlert(isPresented: $showingSaveAlert, alert: saveAlert)
     }
 
     @ViewBuilder
@@ -454,14 +501,25 @@ struct EditPlannedExerciseView: View {
     }
 
     private func save() {
-        planned.sets = sets
-        planned.configureRepTarget(
-            repTargetType,
+        guard case .success(let targetWeight) = resolvedTargetWeight else { return }
+
+        let result = viewModel.updatePlannedExercise(
+            planned,
+            sets: sets,
+            repTargetType: repTargetType,
             exactReps: exactReps,
             rangeLowerBound: rangeLowerBound,
-            rangeUpperBound: rangeUpperBound
+            rangeUpperBound: rangeUpperBound,
+            targetWeight: targetWeight,
+            context: context
         )
-        planned.targetWeight = Double(weight).map { weightUnit.store($0) }
-        dismiss()
+
+        switch result {
+        case .success:
+            dismiss()
+        case .failure(let error):
+            saveAlert = PersistenceAlert(title: "Couldn't Save Exercise", error: error)
+            showingSaveAlert = true
+        }
     }
 }

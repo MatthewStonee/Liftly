@@ -42,10 +42,6 @@ enum ExerciseLibrary {
         }
     }
 
-    static func resetSeedState() {
-        UserDefaults.standard.removeObject(forKey: seededKey)
-    }
-
     fileprivate static func reconcile(context: ModelContext) throws -> Bool {
         let exercises = try context.fetch(FetchDescriptor<Exercise>())
         var exercisesByIdentity = Dictionary(grouping: exercises) {

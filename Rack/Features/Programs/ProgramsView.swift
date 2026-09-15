@@ -10,6 +10,9 @@ struct ProgramsView: View {
     @State private var pendingDeleteProgram: Program?
     @State private var deleteTask: Task<Void, Never>?
     @State private var selectedProgram: Program?
+    @State private var persistenceAlert: PersistenceAlert?
+    @State private var showingPersistenceAlert = false
+    @Environment(PersistenceAlertCenter.self) private var alertCenter: PersistenceAlertCenter?
 
     var body: some View {
         let visiblePrograms = programs.filter { $0.id != pendingDeleteProgram?.id }
@@ -34,16 +37,7 @@ struct ProgramsView: View {
             .titleDisplayMode(.large)
             .navigationDestination(item: $selectedProgram) { program in
                 ProgramDetailView(program: program, onDeleteProgram: {
-                    pendingDeleteProgram = program
-                    deleteTask = Task {
-                        try? await Task.sleep(for: .seconds(4))
-                        guard !Task.isCancelled else { return }
-                        await MainActor.run {
-                            context.delete(program)
-                            try? context.save()
-                            pendingDeleteProgram = nil
-                        }
-                    }
+                    scheduleDeletion(of: program)
                 })
             }
             .undoToast(
@@ -84,6 +78,33 @@ struct ProgramsView: View {
         }
         .sheet(isPresented: $showingSettings) {
             SettingsView()
+        }
+        .persistenceAlert(isPresented: $showingPersistenceAlert, alert: persistenceAlert)
+    }
+
+    private func scheduleDeletion(of program: Program) {
+        pendingDeleteProgram = program
+        let viewModel = viewModel
+        let context = context
+        let alertCenter = alertCenter
+
+        deleteTask = Task {
+            try? await Task.sleep(for: .seconds(4))
+            guard !Task.isCancelled else { return }
+            await MainActor.run {
+                // Report at the app level so the failure stays visible after navigation.
+                if case .failure(let error) = viewModel.deleteProgram(program, context: context) {
+                    alertCenter?.report(PersistenceAlert(title: "Couldn't Delete Program", error: error))
+                }
+                pendingDeleteProgram = nil
+            }
+        }
+    }
+
+    private func activate(_ program: Program) {
+        if case .failure(let error) = viewModel.setActive(program, context: context) {
+            persistenceAlert = PersistenceAlert(title: "Couldn't Set Active Program", error: error)
+            showingPersistenceAlert = true
         }
     }
 
@@ -128,7 +149,7 @@ struct ProgramsView: View {
                             LazyVStack(spacing: 10) {
                                 ForEach(listedPrograms) { program in
                                     ProgramRow(program: program) {
-                                        viewModel.setActive(program, allPrograms: programs, context: context)
+                                        activate(program)
                                     }
                                     .contentShape(Rectangle())
                                     .onTapGesture {

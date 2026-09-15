@@ -5,7 +5,6 @@ struct ProgramDetailView: View {
     @Environment(\.modelContext) private var context
     @Environment(\.dismiss) private var dismiss
     @Bindable var program: Program
-    @Query private var allPrograms: [Program]
     var onDeleteProgram: (() -> Void)?
     @State private var showingAddWorkout = false
     @State private var showingEditProgram = false
@@ -14,6 +13,9 @@ struct ProgramDetailView: View {
     @State private var viewModel = ProgramDetailViewModel()
     @State private var isReorderMode = false
     @State private var selectedWorkout: WorkoutTemplate?
+    @State private var persistenceAlert: PersistenceAlert?
+    @State private var showingPersistenceAlert = false
+    @Environment(PersistenceAlertCenter.self) private var alertCenter: PersistenceAlertCenter?
     @AppStorage("programDetailViewMode") private var detailMode: ProgramDetailMode = .days
 
     private var gradient: some View {
@@ -57,7 +59,7 @@ struct ProgramDetailView: View {
                                 items: visibleWorkouts,
                                 isEnabled: isReorderMode,
                                 onCommitOrder: { orderedIDs in
-                                    viewModel.reorderWorkouts(in: program, orderedIDs: orderedIDs, context: context)
+                                    commitWorkoutOrder(orderedIDs)
                                 }
                             ) { workout, dragHandle in
                                 WorkoutTemplateRow(
@@ -90,7 +92,6 @@ struct ProgramDetailView: View {
                     onCancel: hideAddWorkoutOverlay,
                     onSubmit: { name in
                         addWorkout(named: name)
-                        hideAddWorkoutOverlay()
                     }
                 )
                     .transition(.opacity)
@@ -100,17 +101,7 @@ struct ProgramDetailView: View {
         .titleDisplayMode(.inline)
         .navigationDestination(item: $selectedWorkout) { workout in
             WorkoutTemplateDetailView(workout: workout, onDeleteWorkout: {
-                exitReorderMode()
-                pendingDeleteWorkout = workout
-                workoutDeleteTask = Task {
-                    try? await Task.sleep(for: .seconds(4))
-                    guard !Task.isCancelled else { return }
-                    await MainActor.run {
-                        workout.program = nil
-                        context.delete(workout)
-                        pendingDeleteWorkout = nil
-                    }
-                }
+                scheduleDeletion(of: workout)
             })
         }
         .background { gradient }
@@ -179,6 +170,7 @@ struct ProgramDetailView: View {
                 pendingDeleteWorkout = nil
             }
         )
+        .persistenceAlert(isPresented: $showingPersistenceAlert, alert: persistenceAlert)
     }
 
     private func programHero(workoutCount: Int, exerciseCount: Int) -> some View {
@@ -278,19 +270,50 @@ struct ProgramDetailView: View {
     }
 
     private func addWorkout(named name: String) {
-        let workout = WorkoutTemplate(name: name, orderIndex: program.workoutsList.count)
-        workout.program = program
-        context.insert(workout)
+        switch viewModel.addWorkout(named: name, to: program, context: context) {
+        case .success:
+            hideAddWorkoutOverlay()
+        case .failure(let error):
+            // Keep the overlay open so the typed name can be submitted again.
+            presentPersistenceAlert(title: "Couldn't Add Workout Day", error: error)
+        }
     }
 
     private func setProgramActive() {
-        for candidate in allPrograms where candidate.id != program.id && candidate.isActive {
-            candidate.isActive = false
+        if case .failure(let error) = viewModel.setActive(program, context: context) {
+            presentPersistenceAlert(title: "Couldn't Set Active Program", error: error)
         }
+    }
 
-        if !program.isActive {
-            program.isActive = true
+    private func commitWorkoutOrder(_ orderedIDs: [UUID]) {
+        if case .failure(let error) = viewModel.reorderWorkouts(in: program, orderedIDs: orderedIDs, context: context) {
+            presentPersistenceAlert(title: "Couldn't Save Order", error: error)
         }
+    }
+
+    private func scheduleDeletion(of workout: WorkoutTemplate) {
+        exitReorderMode()
+        pendingDeleteWorkout = workout
+        let viewModel = viewModel
+        let context = context
+        let alertCenter = alertCenter
+
+        workoutDeleteTask = Task {
+            try? await Task.sleep(for: .seconds(4))
+            guard !Task.isCancelled else { return }
+            await MainActor.run {
+                // Report at the app level so the failure stays visible after navigation.
+                if case .failure(let error) = viewModel.deleteWorkout(workout, context: context) {
+                    alertCenter?.report(PersistenceAlert(title: "Couldn't Delete Workout Day", error: error))
+                }
+                pendingDeleteWorkout = nil
+            }
+        }
+    }
+
+    private func presentPersistenceAlert(title: String, error: PersistenceCommandError) {
+        persistenceAlert = PersistenceAlert(title: title, error: error)
+        showingPersistenceAlert = true
     }
 
     private func enterReorderMode(if canToggle: Bool) {

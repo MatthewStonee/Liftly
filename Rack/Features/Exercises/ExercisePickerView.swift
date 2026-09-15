@@ -4,15 +4,18 @@ import SwiftData
 struct ExercisePickerView: View {
     @Environment(\.dismiss) private var dismiss
 
-    let onSelect: (Exercise) -> Void
+    /// Adds the chosen exercise. The picker closes on success and stays open on failure.
+    let onSelect: (Exercise) -> Result<Void, PersistenceCommandError>
 
     @State private var searchText = ""
     @State private var debouncedSearchText = ""
     @State private var selectedMuscle: MuscleGroup? = nil
     @State private var showingCreate = false
     @State private var searchDebounceTask: Task<Void, Never>?
+    @State private var selectionAlert: PersistenceAlert?
+    @State private var showingSelectionAlert = false
 
-    init(onSelect: @escaping (Exercise) -> Void) {
+    init(onSelect: @escaping (Exercise) -> Result<Void, PersistenceCommandError>) {
         self.onSelect = onSelect
     }
 
@@ -27,7 +30,7 @@ struct ExercisePickerView: View {
                     selectedMuscle: selectedMuscle,
                     searchText: debouncedSearchText,
                     hasActiveFilter: selectedMuscle != nil || !debouncedSearchText.isEmpty,
-                    onSelect: onSelect
+                    onSelect: select
                 )
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -64,6 +67,17 @@ struct ExercisePickerView: View {
             .sheet(isPresented: $showingCreate) {
                 CreateExerciseView()
             }
+            .persistenceAlert(isPresented: $showingSelectionAlert, alert: selectionAlert)
+        }
+    }
+
+    private func select(_ exercise: Exercise) {
+        switch onSelect(exercise) {
+        case .success:
+            dismiss()
+        case .failure(let error):
+            selectionAlert = PersistenceAlert(title: "Couldn't Add Exercise", error: error)
+            showingSelectionAlert = true
         }
     }
 
@@ -97,7 +111,6 @@ struct ExercisePickerView: View {
 }
 
 private struct ExercisePickerResultsView: View {
-    @Environment(\.dismiss) private var dismiss
     @Query(sort: \Exercise.name) private var exercises: [Exercise]
 
     let hasActiveFilter: Bool
@@ -147,7 +160,6 @@ private struct ExercisePickerResultsView: View {
                 ForEach(exercises) { exercise in
                     Button {
                         onSelect(exercise)
-                        dismiss()
                     } label: {
                         ExerciseRow(exercise: exercise)
                     }
@@ -231,9 +243,12 @@ struct CreateExerciseView: View {
     @Environment(\.dismiss) private var dismiss
     @Query(sort: \Exercise.name) private var exercises: [Exercise]
 
+    @State private var viewModel = CreateExerciseViewModel()
     @State private var name = ""
     @State private var muscleGroup: MuscleGroup = .chest
     @State private var equipment: Equipment = .barbell
+    @State private var saveAlert: PersistenceAlert?
+    @State private var showingSaveAlert = false
 
     private var trimmedName: String {
         name.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -304,13 +319,18 @@ struct CreateExerciseView: View {
                 }
             }
         }
+        .persistenceAlert(isPresented: $showingSaveAlert, alert: saveAlert)
     }
 
     private func createExercise() {
         guard canCreateExercise else { return }
-        let exercise = Exercise(name: trimmedName, muscleGroup: muscleGroup, equipment: equipment)
-        context.insert(exercise)
-        try? context.save()
-        dismiss()
+
+        switch viewModel.createExercise(name: name, muscleGroup: muscleGroup, equipment: equipment, context: context) {
+        case .success:
+            dismiss()
+        case .failure(let error):
+            saveAlert = PersistenceAlert(title: "Couldn't Create Exercise", error: error)
+            showingSaveAlert = true
+        }
     }
 }

@@ -13,9 +13,11 @@ Liftly is an iOS fitness and workout programming app built with SwiftUI. Helps u
 - Fitness-friendly: large tap targets, easy one-handed use
 
 ## Invariants (do not break)
-- **Weights are always stored in lbs internally.** UI converts via `WeightUnit.display(_)` / `WeightUnit.store(_)` from `Rack/Shared/Extensions.swift`. User preference lives in `@AppStorage("weightUnit")`. Any new weight-facing view must go through these helpers — never read/write raw doubles to the user.
+- **Weights are always stored in lbs internally.** UI converts via `WeightUnit.display(_)` / `WeightUnit.store(_)` from `Rack/Shared/Extensions.swift`. User preference lives in `@AppStorage("weightUnit")`. Any new weight-facing view must go through these helpers — never read/write raw doubles to the user. Editable weight fields use `WeightDraft` / `WeightInput` (`Rack/Shared/WeightInput.swift`): they parse locale-aware, ungrouped decimals, reject invalid text instead of reading it as zero, and reuse the exact stored pounds when the text is unchanged.
 - **`LoggedSet.session` is optional.** This is intentional so Quick Log can create a `LoggedSet` without a `WorkoutSession`. Code that filters "sets belonging to a session" must handle nil.
-- **PRs are tracked per exercise × per rep count**, not just per exercise. A one-time `backfillPersonalRecords()` runs on app launch to mark historical PRs. New/edit/delete of a `LoggedSet` must go through `ProgressViewModel` methods so the `isPersonalRecord` flag is demoted/promoted correctly.
+- **PRs are tracked per exercise × per rep count**, not just per exercise. A one-time `backfillPersonalRecords()` runs on app launch to mark historical PRs. New/edit/delete of a `LoggedSet` must go through `ProgressViewModel.logSet` / `updateSet` / `deleteSet`, which fetch the exercise's current sets and save the set change and its `isPersonalRecord` flags together.
+- **User writes save explicitly.** Main-context autosave is off. Every create/edit/delete/reorder goes through a feature ViewModel method built on `PersistenceCommandRunner.perform(in:_:)`, which refuses an already-dirty context, applies the change synchronously, saves once, and rolls back on failure. Views show the returned `PersistenceCommandError` with `.persistenceAlert(isPresented:alert:)`; failures from delayed work (undo-toast deletions) go to the environment's `PersistenceAlertCenter`. Never mutate persisted models from views or bind form fields to model properties — keep drafts in `@State`.
+- **Startup never deletes or replaces the store.** `AppDataStore` tries CloudKit, then local-only at the same location, and otherwise shows a Retry screen. Maintenance starts only after the store opens.
 
 ## Shared Utilities
 Check `Rack/Shared/` and nearby feature components before creating new UI components.
@@ -39,6 +41,8 @@ Check `Rack/Shared/` and nearby feature components before creating new UI compon
 
 ## Testing
 Ask before adding a test target.
+- Unit-test sources live in `RackTests/` (Swift Testing, `@testable import Rack`), outside the synchronized `Rack/` folder so the app target doesn't compile them.
+- Debug builds accept `-LiftlyDebugSaveFailures <n>` and `-LiftlyDebugStoreOpenFailures <n>` launch arguments to simulate persistence failures in the simulator.
 
 ## Build Configuration
 - Scheme: `Rack`
