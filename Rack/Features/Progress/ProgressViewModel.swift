@@ -38,7 +38,11 @@ final class ProgressViewModel {
     var overview = ProgressOverview()
     var exerciseMetrics = ExerciseProgressMetrics()
     @ObservationIgnored private var allSetsAscending: [LoggedSet] = []
-    @ObservationIgnored private var personalRecordsByRep: [PersonalRecordKey: LoggedSet] = [:]
+    @ObservationIgnored private let commandRunner: PersistenceCommandRunner
+
+    init(commandRunner: PersistenceCommandRunner = PersistenceCommandRunner()) {
+        self.commandRunner = commandRunner
+    }
 
     enum TimeRange: String, CaseIterable {
         case oneMonth = "1M"
@@ -168,8 +172,6 @@ final class ProgressViewModel {
 
     func refreshExerciseMetrics(with sets: [LoggedSet]) {
         allSetsAscending = sets
-        rebuildPersonalRecordCache(from: sets)
-
         exerciseMetrics.personalRecord = personalRecord(for: sets)
         exerciseMetrics.latestSet = sets.last
         refreshRangeMetrics()
@@ -197,91 +199,118 @@ final class ProgressViewModel {
         refreshRangeMetrics()
     }
 
-    // MARK: - PR Detection
+    // MARK: - Logged Set Commands
 
-    func assignPersonalRecordStatus(to set: LoggedSet, for exercise: Exercise) {
-        let key = PersonalRecordKey(exerciseID: exercise.id, reps: set.reps)
-        guard set.weight > 0 else {
-            if set.isPersonalRecord {
-                set.isPersonalRecord = false
-            }
-            return
-        }
-
-        guard let currentPR = personalRecordsByRep[key] else {
-            if !set.isPersonalRecord {
-                set.isPersonalRecord = true
-            }
-            personalRecordsByRep[key] = set
-            return
-        }
-
-        let isNewPersonalRecord = set.weight > currentPR.weight
-        if set.isPersonalRecord != isNewPersonalRecord {
-            set.isPersonalRecord = isNewPersonalRecord
-        }
-
-        if isNewPersonalRecord {
-            if currentPR.isPersonalRecord {
-                currentPR.isPersonalRecord = false
-            }
-            personalRecordsByRep[key] = set
-        }
-    }
-
-    func recalculatePersonalRecord(
+    /// Logs a set and updates personal record flags for its rep count in the same save.
+    func logSet(
         for exercise: Exercise,
         reps: Int,
-        in sets: [LoggedSet],
-        excluding excludedSet: LoggedSet? = nil
-    ) {
-        let excludedID = excludedSet?.id
-        let key = PersonalRecordKey(exerciseID: exercise.id, reps: reps)
-        var bestSet: LoggedSet?
-        var bucketSets: [LoggedSet] = []
+        weight: Double,
+        completedAt: Date,
+        context: ModelContext
+    ) -> Result<LoggedSet, PersistenceCommandError> {
+        guard !exercise.isDeleted else { return .failure(.unavailable) }
 
-        for set in sets where set.exercise?.id == exercise.id && set.reps == reps && set.id != excludedID && set.weight > 0 {
-            bucketSets.append(set)
-            if isPreferredPersonalRecordCandidate(set, over: bestSet) {
-                bestSet = set
+        let result = commandRunner.performInsert(in: context) { context in
+            context.reloadRelationships(of: exercise, [\.loggedSets])
+        } _: { insertionContext in
+            guard let insertionExercise = try insertionContext.existingModel(exercise) else {
+                throw PersistenceCommandError.unavailable
             }
+            let existingSets = try Self.loggedSets(for: insertionExercise, in: insertionContext)
+            let set = LoggedSet(exercise: insertionExercise, reps: reps, weight: weight)
+            set.completedAt = completedAt
+            insertionContext.insert(set)
+            Self.recalculatePersonalRecords(in: existingSets + [set], repCounts: [reps])
+            return set
         }
-
-        for set in sets where set.exercise?.id == exercise.id && set.reps == reps && set.id != excludedID && set.weight <= 0 {
-            bucketSets.append(set)
-        }
-
-        for set in bucketSets {
-            let shouldBePersonalRecord = set.id == bestSet?.id
-            if set.isPersonalRecord != shouldBePersonalRecord {
-                set.isPersonalRecord = shouldBePersonalRecord
-            }
-        }
-
-        if excludedSet?.isPersonalRecord == true {
-            excludedSet?.isPersonalRecord = false
-        }
-
-        if let bestSet {
-            personalRecordsByRep[key] = bestSet
-        } else {
-            personalRecordsByRep.removeValue(forKey: key)
-        }
+        refreshExerciseMetrics(for: exercise, context: context)
+        return result
     }
 
-    func recalculatePersonalRecordsAfterEdit(
+    /// Edits a set and updates personal record flags for its old and new rep counts
+    /// in the same save.
+    func updateSet(
         _ set: LoggedSet,
-        for exercise: Exercise,
-        originalReps: Int,
-        originalWeight: Double,
-        in sets: [LoggedSet]
-    ) {
-        guard originalReps != set.reps || originalWeight != set.weight else { return }
+        reps: Int,
+        weight: Double,
+        completedAt: Date,
+        context: ModelContext
+    ) -> Result<Void, PersistenceCommandError> {
+        guard !set.isDeleted, let exercise = set.exercise else { return .failure(.unavailable) }
 
-        if originalReps != set.reps {
-            recalculatePersonalRecord(for: exercise, reps: originalReps, in: sets, excluding: set)
+        let result = commandRunner.perform(in: context) { context in
+            var exerciseSets = try Self.loggedSets(for: exercise, in: context)
+            if !exerciseSets.contains(where: { $0.id == set.id }) {
+                exerciseSets.append(set)
+            }
+            let originalReps = set.reps
+
+            if set.weight != weight {
+                set.weight = weight
+            }
+            if set.reps != reps {
+                set.reps = reps
+            }
+            if set.completedAt != completedAt {
+                set.completedAt = completedAt
+            }
+
+            // A set that moves to another rep count doesn't keep its record status.
+            if originalReps != reps, set.isPersonalRecord {
+                set.isPersonalRecord = false
+            }
+            Self.recalculatePersonalRecords(in: exerciseSets, repCounts: [originalReps, reps])
         }
-        recalculatePersonalRecord(for: exercise, reps: set.reps, in: sets)
+        refreshExerciseMetrics(for: exercise, context: context)
+        return result
+    }
+
+    /// Deletes a set and promotes the next personal record for its rep count in the same save.
+    func deleteSet(_ set: LoggedSet, context: ModelContext) -> Result<Void, PersistenceCommandError> {
+        guard !set.isDeleted else { return .success(()) }
+        let exercise = set.exercise
+
+        let result = commandRunner.perform(in: context) { context in
+            let reps = set.reps
+            let remainingSets = try exercise.map { exercise in
+                try Self.loggedSets(for: exercise, in: context).filter { $0.id != set.id }
+            } ?? []
+            context.delete(set)
+            Self.recalculatePersonalRecords(in: remainingSets, repCounts: [reps])
+        }
+        if let exercise {
+            refreshExerciseMetrics(for: exercise, context: context)
+        }
+        return result
+    }
+
+    private static func loggedSets(for exercise: Exercise, in context: ModelContext) throws -> [LoggedSet] {
+        let exerciseID = exercise.id
+        let descriptor = FetchDescriptor<LoggedSet>(
+            predicate: #Predicate<LoggedSet> { set in
+                set.exercise?.id == exerciseID
+            }
+        )
+        return try context.fetch(descriptor)
+    }
+
+    /// Marks the preferred set in each rep-count bucket as its personal record.
+    static func recalculatePersonalRecords(in sets: [LoggedSet], repCounts: [Int]) {
+        for reps in Set(repCounts) {
+            let bucketSets = sets.filter { $0.reps == reps }
+            var bestSet: LoggedSet?
+            for set in bucketSets where isPreferredPersonalRecordCandidate(set, over: bestSet) {
+                bestSet = set
+            }
+
+            for set in bucketSets {
+                let shouldBePersonalRecord = set.id == bestSet?.id
+                if set.isPersonalRecord != shouldBePersonalRecord {
+                    set.isPersonalRecord = shouldBePersonalRecord
+                }
+            }
+        }
     }
 
     private func refreshRangeMetrics(now: Date = Date()) {
@@ -352,20 +381,6 @@ final class ProgressViewModel {
             return calendar.dateInterval(of: .month, for: date)?.start ?? calendar.startOfDay(for: date)
         }
     }
-
-    private func rebuildPersonalRecordCache(from sets: [LoggedSet]) {
-        personalRecordsByRep.removeAll(keepingCapacity: true)
-
-        for set in sets where set.weight > 0 {
-            guard let exerciseID = set.exercise?.id else { continue }
-            let key = PersonalRecordKey(exerciseID: exerciseID, reps: set.reps)
-
-            if isPreferredPersonalRecordCandidate(set, over: personalRecordsByRep[key]) {
-                personalRecordsByRep[key] = set
-            }
-        }
-    }
-
 }
 
 /// Keyed off the main actor by `PersonalRecordBackfillActor`, so the type and its

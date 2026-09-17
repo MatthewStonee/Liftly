@@ -42,10 +42,6 @@ enum ExerciseLibrary {
         }
     }
 
-    static func resetSeedState() {
-        UserDefaults.standard.removeObject(forKey: seededKey)
-    }
-
     /// Runs on `ExerciseLibraryMaintenanceActor`, so this and everything it reaches are
     /// `nonisolated`: they touch persistence only through the passed-in context.
     fileprivate nonisolated static func reconcile(context: ModelContext) throws -> Bool {
