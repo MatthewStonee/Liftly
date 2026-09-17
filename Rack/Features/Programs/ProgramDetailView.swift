@@ -270,6 +270,9 @@ struct ProgramDetailView: View {
     }
 
     private func addWorkout(named name: String) {
+        // The overlay stays tappable while it fades out, so only add from an open overlay.
+        guard showingAddWorkout else { return }
+
         switch viewModel.addWorkout(named: name, to: program, context: context) {
         case .success:
             hideAddWorkoutOverlay()

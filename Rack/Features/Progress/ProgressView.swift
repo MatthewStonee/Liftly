@@ -582,6 +582,8 @@ struct QuickLogSheet: View {
     @State private var date: Date = .now
     @State private var saveAlert: PersistenceAlert?
     @State private var showingSaveAlert = false
+    @State private var didLogSet = false
+    @FocusState private var isWeightFieldFocused: Bool
 
     /// Captures the display unit and locale when the sheet opens, and prefills from the
     /// latest set so an untouched weight logs the same stored value.
@@ -608,105 +610,110 @@ struct QuickLogSheet: View {
 
     var body: some View {
         NavigationStack {
-            VStack(spacing: 24) {
-                HStack(spacing: 12) {
-                    RoundedRectangle(cornerRadius: 2)
-                        .fill(exercise.muscleGroup.color)
-                        .frame(width: 4, height: 40)
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(exercise.name)
-                            .font(.headline)
-                        Text(exercise.muscleGroup.rawValue + " \u{b7} " + exercise.equipment.rawValue)
-                            .font(.caption)
+            ScrollView {
+                VStack(spacing: 24) {
+                    HStack(spacing: 12) {
+                        RoundedRectangle(cornerRadius: 2)
+                            .fill(exercise.muscleGroup.color)
+                            .frame(width: 4, height: 40)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(exercise.name)
+                                .font(.headline)
+                            Text(exercise.muscleGroup.rawValue + " \u{b7} " + exercise.equipment.rawValue)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                        Spacer()
+                    }
+                    .padding(14)
+                    .glassBackground()
+
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Weight (\(weightDraft.input.unit.symbol))")
+                            .font(.subheadline.bold())
                             .foregroundStyle(.secondary)
-                    }
-                    Spacer()
-                }
-                .padding(14)
-                .glassBackground()
-
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("Weight (\(weightDraft.input.unit.symbol))")
-                        .font(.subheadline.bold())
-                        .foregroundStyle(.secondary)
-                    TextField("0", text: $weightDraft.text)
-                        .keyboardType(.decimalPad)
-                        .font(.title2.bold())
-                        .multilineTextAlignment(.center)
-                        .padding(16)
-                        .background(Color.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 14))
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 14)
-                                .strokeBorder(
-                                    weightMessage == nil ? Color.white.opacity(0.1) : Color.red.opacity(0.7),
-                                    lineWidth: weightMessage == nil ? 0.5 : 1
-                                )
-                        )
-                    if let weightMessage {
-                        WeightValidationMessage(weightMessage)
-                    }
-                }
-
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("Reps")
-                        .font(.subheadline.bold())
-                        .foregroundStyle(.secondary)
-                    HStack {
-                        Button {
-                            if reps > 1 { reps -= 1 }
-                        } label: {
-                            Image(systemName: "minus")
-                                .font(.title3.bold())
-                                .frame(maxWidth: .infinity)
-                                .padding(.vertical, 16)
-                                .background(Color.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 14))
+                        TextField("0", text: $weightDraft.text)
+                            .keyboardType(.decimalPad)
+                            .focused($isWeightFieldFocused)
+                            .font(.title2.bold())
+                            .multilineTextAlignment(.center)
+                            .padding(16)
+                            .background(Color.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 14))
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 14)
+                                    .strokeBorder(
+                                        weightMessage == nil ? Color.white.opacity(0.1) : Color.red.opacity(0.7),
+                                        lineWidth: weightMessage == nil ? 0.5 : 1
+                                    )
+                            )
+                        if let weightMessage {
+                            WeightValidationMessage(weightMessage)
                         }
-                        .buttonStyle(.plain)
-                        .accessibilityLabel("Decrease reps")
+                    }
 
-                        Text("\(reps)")
-                            .font(.title.bold())
-                            .frame(maxWidth: .infinity)
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Reps")
+                            .font(.subheadline.bold())
+                            .foregroundStyle(.secondary)
+                        HStack {
+                            Button {
+                                if reps > 1 { reps -= 1 }
+                            } label: {
+                                Image(systemName: "minus")
+                                    .font(.title3.bold())
+                                    .frame(maxWidth: .infinity)
+                                    .padding(.vertical, 16)
+                                    .background(Color.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 14))
+                            }
+                            .buttonStyle(.plain)
+                            .accessibilityLabel("Decrease reps")
 
-                        Button {
-                            reps += 1
-                        } label: {
-                            Image(systemName: "plus")
-                                .font(.title3.bold())
+                            Text("\(reps)")
+                                .font(.title.bold())
                                 .frame(maxWidth: .infinity)
-                                .padding(.vertical, 16)
-                                .background(Color.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 14))
+
+                            Button {
+                                reps += 1
+                            } label: {
+                                Image(systemName: "plus")
+                                    .font(.title3.bold())
+                                    .frame(maxWidth: .infinity)
+                                    .padding(.vertical, 16)
+                                    .background(Color.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 14))
+                            }
+                            .buttonStyle(.plain)
+                            .accessibilityLabel("Increase reps")
                         }
-                        .buttonStyle(.plain)
-                        .accessibilityLabel("Increase reps")
+                    }
+
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Date")
+                            .font(.subheadline.bold())
+                            .foregroundStyle(.secondary)
+                        DatePicker("", selection: $date, in: ...Date.now, displayedComponents: .date)
+                            .datePickerStyle(.compact)
+                            .labelsHidden()
+                            .padding(14)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .background(Color.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 14))
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 14)
+                                    .strokeBorder(.white.opacity(0.1), lineWidth: 0.5)
+                            )
                     }
                 }
-
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("Date")
-                        .font(.subheadline.bold())
-                        .foregroundStyle(.secondary)
-                    DatePicker("", selection: $date, in: ...Date.now, displayedComponents: .date)
-                        .datePickerStyle(.compact)
-                        .labelsHidden()
-                        .padding(14)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .background(Color.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 14))
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 14)
-                                .strokeBorder(.white.opacity(0.1), lineWidth: 0.5)
-                        )
-                }
-
-                Spacer()
-
-                PrimaryButton("Log Set", icon: "checkmark") {
-                    logSet()
-                }
-                .disabled(resolvedWeight == nil)
+                .padding(20)
             }
-            .padding(20)
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .scrollBounceBehavior(.basedOnSize)
+            .scrollDismissesKeyboard(.interactively)
+            .safeAreaBar(edge: .bottom) {
+                PinnedActionBar(isFieldFocused: $isWeightFieldFocused) {
+                    PrimaryButton("Log Set", icon: "checkmark") {
+                        logSet()
+                    }
+                    .disabled(resolvedWeight == nil)
+                }
+            }
             .background {
                 LinearGradient(
                     colors: [Color(red: 0.04, green: 0.06, blue: 0.18), Color.black],
@@ -727,10 +734,12 @@ struct QuickLogSheet: View {
     }
 
     private func logSet() {
-        guard let weight = resolvedWeight else { return }
+        // Ignore extra taps while the sheet closes after a successful log.
+        guard !didLogSet, let weight = resolvedWeight else { return }
 
         switch viewModel.logSet(for: exercise, reps: reps, weight: weight, completedAt: date, context: context) {
         case .success:
+            didLogSet = true
             UINotificationFeedbackGenerator().notificationOccurred(.success)
             dismiss()
         case .failure(let error):
@@ -753,6 +762,7 @@ struct EditLoggedSetSheet: View {
     @State private var date: Date
     @State private var saveAlert: PersistenceAlert?
     @State private var showingSaveAlert = false
+    @FocusState private var isWeightFieldFocused: Bool
 
     /// Captures the display unit and locale when the sheet opens. An untouched weight
     /// saves the set's original stored value.
@@ -783,107 +793,112 @@ struct EditLoggedSetSheet: View {
 
     var body: some View {
         NavigationStack {
-            VStack(spacing: 24) {
-                if let exercise = set.exercise {
-                    HStack(spacing: 12) {
-                        RoundedRectangle(cornerRadius: 2)
-                            .fill(exercise.muscleGroup.color)
-                            .frame(width: 4, height: 40)
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(exercise.name)
-                                .font(.headline)
-                            Text(exercise.muscleGroup.rawValue + " \u{b7} " + exercise.equipment.rawValue)
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
+            ScrollView {
+                VStack(spacing: 24) {
+                    if let exercise = set.exercise {
+                        HStack(spacing: 12) {
+                            RoundedRectangle(cornerRadius: 2)
+                                .fill(exercise.muscleGroup.color)
+                                .frame(width: 4, height: 40)
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(exercise.name)
+                                    .font(.headline)
+                                Text(exercise.muscleGroup.rawValue + " \u{b7} " + exercise.equipment.rawValue)
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                            Spacer()
                         }
-                        Spacer()
-                    }
-                    .padding(14)
-                    .glassBackground()
-                }
-
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("Weight (\(weightDraft.input.unit.symbol))")
-                        .font(.subheadline.bold())
-                        .foregroundStyle(.secondary)
-                    TextField("0", text: $weightDraft.text)
-                        .keyboardType(.decimalPad)
-                        .font(.title2.bold())
-                        .multilineTextAlignment(.center)
-                        .padding(16)
-                        .background(Color.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 14))
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 14)
-                                .strokeBorder(
-                                    weightMessage == nil ? Color.white.opacity(0.1) : Color.red.opacity(0.7),
-                                    lineWidth: weightMessage == nil ? 0.5 : 1
-                                )
-                        )
-                    if let weightMessage {
-                        WeightValidationMessage(weightMessage)
-                    }
-                }
-
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("Reps")
-                        .font(.subheadline.bold())
-                        .foregroundStyle(.secondary)
-                    HStack {
-                        Button {
-                            if reps > 1 { reps -= 1 }
-                        } label: {
-                            Image(systemName: "minus")
-                                .font(.title3.bold())
-                                .frame(maxWidth: .infinity)
-                                .padding(.vertical, 16)
-                                .background(Color.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 14))
-                        }
-                        .buttonStyle(.plain)
-                        .accessibilityLabel("Decrease reps")
-
-                        Text("\(reps)")
-                            .font(.title.bold())
-                            .frame(maxWidth: .infinity)
-
-                        Button {
-                            reps += 1
-                        } label: {
-                            Image(systemName: "plus")
-                                .font(.title3.bold())
-                                .frame(maxWidth: .infinity)
-                                .padding(.vertical, 16)
-                                .background(Color.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 14))
-                        }
-                        .buttonStyle(.plain)
-                        .accessibilityLabel("Increase reps")
-                    }
-                }
-
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("Date")
-                        .font(.subheadline.bold())
-                        .foregroundStyle(.secondary)
-                    DatePicker("", selection: $date, in: ...Date.now, displayedComponents: .date)
-                        .datePickerStyle(.compact)
-                        .labelsHidden()
                         .padding(14)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .background(Color.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 14))
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 14)
-                                .strokeBorder(.white.opacity(0.1), lineWidth: 0.5)
-                        )
-                }
+                        .glassBackground()
+                    }
 
-                Spacer()
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Weight (\(weightDraft.input.unit.symbol))")
+                            .font(.subheadline.bold())
+                            .foregroundStyle(.secondary)
+                        TextField("0", text: $weightDraft.text)
+                            .keyboardType(.decimalPad)
+                            .focused($isWeightFieldFocused)
+                            .font(.title2.bold())
+                            .multilineTextAlignment(.center)
+                            .padding(16)
+                            .background(Color.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 14))
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 14)
+                                    .strokeBorder(
+                                        weightMessage == nil ? Color.white.opacity(0.1) : Color.red.opacity(0.7),
+                                        lineWidth: weightMessage == nil ? 0.5 : 1
+                                    )
+                            )
+                        if let weightMessage {
+                            WeightValidationMessage(weightMessage)
+                        }
+                    }
 
-                PrimaryButton("Save Changes", icon: "checkmark") {
-                    saveChanges()
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Reps")
+                            .font(.subheadline.bold())
+                            .foregroundStyle(.secondary)
+                        HStack {
+                            Button {
+                                if reps > 1 { reps -= 1 }
+                            } label: {
+                                Image(systemName: "minus")
+                                    .font(.title3.bold())
+                                    .frame(maxWidth: .infinity)
+                                    .padding(.vertical, 16)
+                                    .background(Color.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 14))
+                            }
+                            .buttonStyle(.plain)
+                            .accessibilityLabel("Decrease reps")
+
+                            Text("\(reps)")
+                                .font(.title.bold())
+                                .frame(maxWidth: .infinity)
+
+                            Button {
+                                reps += 1
+                            } label: {
+                                Image(systemName: "plus")
+                                    .font(.title3.bold())
+                                    .frame(maxWidth: .infinity)
+                                    .padding(.vertical, 16)
+                                    .background(Color.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 14))
+                            }
+                            .buttonStyle(.plain)
+                            .accessibilityLabel("Increase reps")
+                        }
+                    }
+
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Date")
+                            .font(.subheadline.bold())
+                            .foregroundStyle(.secondary)
+                        DatePicker("", selection: $date, in: ...Date.now, displayedComponents: .date)
+                            .datePickerStyle(.compact)
+                            .labelsHidden()
+                            .padding(14)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .background(Color.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 14))
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 14)
+                                    .strokeBorder(.white.opacity(0.1), lineWidth: 0.5)
+                            )
+                    }
                 }
-                .disabled(resolvedWeight == nil)
+                .padding(20)
             }
-            .padding(20)
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .scrollBounceBehavior(.basedOnSize)
+            .scrollDismissesKeyboard(.interactively)
+            .safeAreaBar(edge: .bottom) {
+                PinnedActionBar(isFieldFocused: $isWeightFieldFocused) {
+                    PrimaryButton("Save Changes", icon: "checkmark") {
+                        saveChanges()
+                    }
+                    .disabled(resolvedWeight == nil)
+                }
+            }
             .background {
                 LinearGradient(
                     colors: [Color(red: 0.04, green: 0.06, blue: 0.18), Color.black],

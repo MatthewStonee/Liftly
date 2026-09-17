@@ -12,6 +12,7 @@ struct CreateProgramView: View {
     @State private var description: String
     @State private var saveAlert: PersistenceAlert?
     @State private var showingSaveAlert = false
+    @State private var didSave = false
 
     init(existingProgram: Program? = nil) {
         self.existingProgram = existingProgram
@@ -78,8 +79,12 @@ struct CreateProgramView: View {
     }
 
     private func createProgram() {
+        // Ignore extra taps while the sheet closes after a successful save.
+        guard !didSave else { return }
+
         switch viewModel.createProgram(name: name, description: description, context: context) {
         case .success:
+            didSave = true
             dismiss()
         case .failure(let error):
             saveAlert = PersistenceAlert(title: "Couldn't Create Program", error: error)
@@ -88,10 +93,11 @@ struct CreateProgramView: View {
     }
 
     private func saveChanges() {
-        guard let existingProgram else { return }
+        guard !didSave, let existingProgram else { return }
 
         switch viewModel.updateProgram(existingProgram, name: name, description: description, context: context) {
         case .success:
+            didSave = true
             dismiss()
         case .failure(let error):
             saveAlert = PersistenceAlert(title: "Couldn't Save Program", error: error)

@@ -14,6 +14,7 @@ struct ExercisePickerView: View {
     @State private var searchDebounceTask: Task<Void, Never>?
     @State private var selectionAlert: PersistenceAlert?
     @State private var showingSelectionAlert = false
+    @State private var didSelect = false
 
     init(onSelect: @escaping (Exercise) -> Result<Void, PersistenceCommandError>) {
         self.onSelect = onSelect
@@ -72,8 +73,12 @@ struct ExercisePickerView: View {
     }
 
     private func select(_ exercise: Exercise) {
+        // Ignore extra taps while the picker closes after adding an exercise.
+        guard !didSelect else { return }
+
         switch onSelect(exercise) {
         case .success:
+            didSelect = true
             dismiss()
         case .failure(let error):
             selectionAlert = PersistenceAlert(title: "Couldn't Add Exercise", error: error)
@@ -249,6 +254,7 @@ struct CreateExerciseView: View {
     @State private var equipment: Equipment = .barbell
     @State private var saveAlert: PersistenceAlert?
     @State private var showingSaveAlert = false
+    @State private var didCreate = false
 
     private var trimmedName: String {
         name.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -323,10 +329,12 @@ struct CreateExerciseView: View {
     }
 
     private func createExercise() {
-        guard canCreateExercise else { return }
+        // Ignore extra taps while the sheet closes after a successful save.
+        guard !didCreate, canCreateExercise else { return }
 
         switch viewModel.createExercise(name: name, muscleGroup: muscleGroup, equipment: equipment, context: context) {
         case .success:
+            didCreate = true
             dismiss()
         case .failure(let error):
             saveAlert = PersistenceAlert(title: "Couldn't Create Exercise", error: error)

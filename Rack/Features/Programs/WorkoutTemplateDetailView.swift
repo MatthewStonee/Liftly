@@ -363,6 +363,7 @@ struct EditPlannedExerciseView: View {
     @State private var weightDraft: WeightDraft
     @State private var saveAlert: PersistenceAlert?
     @State private var showingSaveAlert = false
+    @FocusState private var isWeightFieldFocused: Bool
 
     /// Captures the display unit and locale when the sheet opens. An untouched target
     /// weight saves the original stored value.
@@ -387,13 +388,7 @@ struct EditPlannedExerciseView: View {
 
     var body: some View {
         NavigationStack {
-            ZStack {
-                LinearGradient(
-                    colors: [Color(red: 0.04, green: 0.06, blue: 0.18), Color.black],
-                    startPoint: .top, endPoint: .bottom
-                )
-                .ignoresSafeArea()
-
+            ScrollView {
                 VStack(spacing: 20) {
                     Text(planned.exercise?.name ?? "Exercise")
                         .font(.title2.bold())
@@ -420,6 +415,7 @@ struct EditPlannedExerciseView: View {
                             .foregroundStyle(.secondary)
                         TextField("Optional", text: $weightDraft.text)
                             .keyboardType(.decimalPad)
+                            .focused($isWeightFieldFocused)
                             .padding(14)
                             .background(Color.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 14))
                             .overlay {
@@ -432,13 +428,23 @@ struct EditPlannedExerciseView: View {
                             WeightValidationMessage(weightMessage)
                         }
                     }
-
-                    Spacer()
-
+                }
+                .padding(20)
+            }
+            .scrollBounceBehavior(.basedOnSize)
+            .scrollDismissesKeyboard(.interactively)
+            .safeAreaBar(edge: .bottom) {
+                PinnedActionBar(isFieldFocused: $isWeightFieldFocused) {
                     PrimaryButton("Save") { save() }
                         .disabled(weightMessage != nil)
                 }
-                .padding(20)
+            }
+            .background {
+                LinearGradient(
+                    colors: [Color(red: 0.04, green: 0.06, blue: 0.18), Color.black],
+                    startPoint: .top, endPoint: .bottom
+                )
+                .ignoresSafeArea()
             }
             .navigationTitle("Edit Exercise")
             .titleDisplayMode(.inline)
