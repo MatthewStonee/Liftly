@@ -368,12 +368,15 @@ final class ProgressViewModel {
 
 }
 
-private struct PersonalRecordKey: Hashable {
+/// Keyed off the main actor by `PersonalRecordBackfillActor`, so the type and its
+/// `Hashable` conformance stay `nonisolated`.
+private nonisolated struct PersonalRecordKey: Hashable {
     let exerciseID: UUID
     let reps: Int
 }
 
-func isPreferredPersonalRecordCandidate(_ candidate: LoggedSet, over current: LoggedSet?) -> Bool {
+/// Pure comparison over two sets; callable from `ProgressViewModel` and from the backfill actor.
+nonisolated func isPreferredPersonalRecordCandidate(_ candidate: LoggedSet, over current: LoggedSet?) -> Bool {
     guard candidate.weight > 0 else { return false }
     guard let current else { return true }
 

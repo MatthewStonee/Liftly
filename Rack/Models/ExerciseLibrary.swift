@@ -3,7 +3,7 @@ import Foundation
 import OSLog
 
 enum ExerciseLibrary {
-    private static let seededKey = "exerciseLibrarySeeded"
+    private nonisolated static let seededKey = "exerciseLibrarySeeded"
     private static let logger = Logger(subsystem: "com.matthewstone.liftly", category: "ExerciseLibrary")
 
     /// Performs the minimum work required to make the library available on first launch.
@@ -46,7 +46,9 @@ enum ExerciseLibrary {
         UserDefaults.standard.removeObject(forKey: seededKey)
     }
 
-    fileprivate static func reconcile(context: ModelContext) throws -> Bool {
+    /// Runs on `ExerciseLibraryMaintenanceActor`, so this and everything it reaches are
+    /// `nonisolated`: they touch persistence only through the passed-in context.
+    fileprivate nonisolated static func reconcile(context: ModelContext) throws -> Bool {
         let exercises = try context.fetch(FetchDescriptor<Exercise>())
         var exercisesByIdentity = Dictionary(grouping: exercises) {
             ExerciseIdentity(exercise: $0)
@@ -136,7 +138,7 @@ enum ExerciseLibrary {
         return didChange
     }
 
-    fileprivate static func normalizeInvalidRepTargets(context: ModelContext) throws -> Bool {
+    fileprivate nonisolated static func normalizeInvalidRepTargets(context: ModelContext) throws -> Bool {
         let exactType = PlannedRepTargetType.exact.rawValue
         let rangeType = PlannedRepTargetType.range.rawValue
         let failureType = PlannedRepTargetType.failure.rawValue
@@ -182,15 +184,15 @@ enum ExerciseLibrary {
         return didChange
     }
 
-    fileprivate static func markSeeded() {
+    fileprivate nonisolated static func markSeeded() {
         UserDefaults.standard.set(true, forKey: seededKey)
     }
 
-    static func normalizedName(_ name: String) -> String {
+    nonisolated static func normalizedName(_ name: String) -> String {
         name.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
     }
 
-    private static func canonicalExercise(
+    private nonisolated static func canonicalExercise(
         from exercises: [Exercise],
         referenceCounts: [UUID: Int]
     ) -> Exercise {
@@ -207,7 +209,7 @@ enum ExerciseLibrary {
         }!
     }
 
-    private static func recalculatePersonalRecords(for exercise: Exercise, loggedSets: [LoggedSet]) -> Bool {
+    private nonisolated static func recalculatePersonalRecords(for exercise: Exercise, loggedSets: [LoggedSet]) -> Bool {
         let exerciseSets = loggedSets.filter { $0.exercise?.id == exercise.id }
         var didChange = false
 
@@ -232,7 +234,7 @@ enum ExerciseLibrary {
         return didChange
     }
 
-    private struct ExerciseIdentity: Hashable {
+    private nonisolated struct ExerciseIdentity: Hashable {
         let name: String
         let muscleGroup: MuscleGroup
         let equipment: Equipment
@@ -252,7 +254,7 @@ enum ExerciseLibrary {
         }
     }
 
-    static let seed: [(name: String, muscleGroup: MuscleGroup, equipment: Equipment)] = [
+    nonisolated static let seed: [(name: String, muscleGroup: MuscleGroup, equipment: Equipment)] = [
         // MARK: Chest
         ("Bench Press",             .chest,      .barbell),
         ("Incline Bench Press",     .chest,      .barbell),
