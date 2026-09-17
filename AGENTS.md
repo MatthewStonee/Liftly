@@ -46,7 +46,7 @@ Ask before adding a test target.
 
 ## Build Configuration
 - Scheme: `Rack`
-- Target simulator: iPhone 17 Pro (iOS 27.x)
+- Target simulator: iPhone 18 Pro (iOS 27.x)
 - iPhone-only (no iPad, no Mac Catalyst) — layouts can assume phone-sized viewports
 - Build command: Ask if you should use XcodeBuildMCP tools, never raw `xcodebuild` shell commands
 
