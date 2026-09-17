@@ -119,6 +119,49 @@ struct PersistenceCommandRunnerTests {
         #expect(try TestStore.savedModels(Program.self, in: container).map(\.name) == ["Unsaved"])
     }
 
+    @Test func failedInsertLeavesTheMainContextUntouched() throws {
+        let container = try TestStore.makeInMemoryContainer()
+        let context = container.mainContext
+        let program = try Fixtures.savedProgram(in: context, workoutNames: ["Push"])
+        let saves = SaveSwitch(isFailing: true)
+
+        let failed = saves.runner.performInsert(in: context) { _ in } _: { insertionContext in
+            let insertionProgram = try #require(try insertionContext.existingModel(program))
+            let workout = WorkoutTemplate(name: "Pull", orderIndex: 1)
+            workout.program = insertionProgram
+            insertionContext.insert(workout)
+            return workout
+        }
+
+        #expect(failed.isRolledBackSaveFailure)
+        #expect(!context.hasChanges)
+        #expect(program.workoutsList.map(\.name) == ["Push"])
+        #expect(try TestStore.savedModels(WorkoutTemplate.self, in: container).count == 1)
+    }
+
+    @Test func successfulInsertReturnsTheMainContextModel() throws {
+        let container = try TestStore.makeInMemoryContainer()
+        let context = container.mainContext
+        let program = try Fixtures.savedProgram(in: context, workoutNames: ["Push"])
+        let saves = SaveSwitch()
+
+        let inserted = try saves.runner.performInsert(in: context) { context in
+            context.reloadRelationships(of: program, [\.workouts])
+        } _: { insertionContext in
+            let insertionProgram = try #require(try insertionContext.existingModel(program))
+            let workout = WorkoutTemplate(name: "Pull", orderIndex: 1)
+            workout.program = insertionProgram
+            insertionContext.insert(workout)
+            return workout
+        }.get()
+
+        #expect(inserted.modelContext === context)
+        #expect(inserted.program?.id == program.id)
+        #expect(program.workoutsList.map(\.name).sorted() == ["Pull", "Push"])
+        #expect(!context.hasChanges)
+        #expect(saves.saveAttempts == 1)
+    }
+
     @Test func skipsSavingWhenNothingChanged() throws {
         let container = try TestStore.makeInMemoryContainer()
         let saves = SaveSwitch(isFailing: true)

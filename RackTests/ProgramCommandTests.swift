@@ -115,6 +115,8 @@ struct ProgramCommandTests {
         let workout = try viewModel.addWorkout(named: "Pull", to: program, context: context).get()
 
         #expect(workout.orderIndex == 1)
+        #expect(workout.modelContext === context)
+        #expect(program.workoutsList.map(\.name).sorted() == ["Pull", "Push"])
         #expect(try TestStore.savedModels(WorkoutTemplate.self, in: container).count == 2)
     }
 
@@ -148,6 +150,9 @@ struct ProgramCommandTests {
         let planned = try viewModel.addExercise(exercise, to: workout, repTargetType: .range, context: context).get()
 
         #expect(planned.repTargetType == .range)
+        #expect(planned.modelContext === context)
+        #expect(workout.plannedExercisesList.map(\.id) == [planned.id])
+        #expect(exercise.plannedExercisesList.map(\.id) == [planned.id])
         #expect(try TestStore.savedModels(PlannedExercise.self, in: container).count == 1)
     }
 

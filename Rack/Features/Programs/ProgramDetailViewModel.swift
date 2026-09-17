@@ -38,10 +38,15 @@ final class ProgramDetailViewModel {
         guard !trimmedName.isEmpty else { return .failure(.invalidInput) }
         guard !program.isDeleted else { return .failure(.unavailable) }
 
-        return commandRunner.perform(in: context) { context in
-            let workout = WorkoutTemplate(name: trimmedName, orderIndex: program.workoutsList.count)
-            workout.program = program
-            context.insert(workout)
+        return commandRunner.performInsert(in: context) { context in
+            context.reloadRelationships(of: program, [\.workouts])
+        } _: { insertionContext in
+            guard let insertionProgram = try insertionContext.existingModel(program) else {
+                throw PersistenceCommandError.unavailable
+            }
+            let workout = WorkoutTemplate(name: trimmedName, orderIndex: insertionProgram.workoutsList.count)
+            workout.program = insertionProgram
+            insertionContext.insert(workout)
             return workout
         }
     }

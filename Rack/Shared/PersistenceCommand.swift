@@ -71,11 +71,76 @@ nonisolated struct PersistenceCommandRunner {
         }
     }
 
+    /// Runs a command that inserts a model into a to-many relationship.
+    ///
+    /// On iOS 27, rolling back a context after such an insert leaves the related model's
+    /// relationship unreadable, and the next read crashes. These commands run in a
+    /// disposable context instead, so a failed save is discarded without touching
+    /// `context`. After a successful save, `refresh` reloads relationships that `context`
+    /// already loaded, and the inserted model is returned from `context`.
+    @MainActor
+    func performInsert<Model: PersistentModel>(
+        in context: ModelContext,
+        refresh: (ModelContext) -> Void,
+        _ command: (ModelContext) throws -> Model
+    ) -> Result<Model, PersistenceCommandError> {
+        guard !context.hasChanges else {
+            Self.logger.error("Refused a write because the context already had unsaved changes.")
+            return .failure(.pendingChanges)
+        }
+
+        let insertionContext = ModelContext(context.container)
+        insertionContext.autosaveEnabled = false
+
+        let insertedID: PersistentIdentifier
+        do {
+            let model = try command(insertionContext)
+            try save(insertionContext)
+            insertedID = model.persistentModelID
+        } catch {
+            Self.logger.error("Discarded a failed insert: \(String(describing: error), privacy: .public)")
+            if let commandError = error as? PersistenceCommandError {
+                return .failure(commandError)
+            }
+            return .failure(.failed(String(describing: error)))
+        }
+
+        refresh(context)
+        guard let model = context.model(for: insertedID) as? Model else {
+            return .failure(.unavailable)
+        }
+        return .success(model)
+    }
+
     @MainActor
     static func saveContext(_ context: ModelContext) throws {
         #if DEBUG
         try DebugPersistenceFaults.consumeSaveFailure()
         #endif
         try context.save()
+    }
+}
+
+extension ModelContext {
+    /// This context's instance of a model loaded elsewhere, or `nil` if it no longer exists.
+    func existingModel<Model: PersistentModel>(_ model: Model) throws -> Model? {
+        let modelID = model.persistentModelID
+        var descriptor = FetchDescriptor<Model>(predicate: #Predicate { $0.persistentModelID == modelID })
+        descriptor.fetchLimit = 1
+        return try fetch(descriptor).first
+    }
+
+    /// Reloads relationships of a model this context already loaded, so they include
+    /// models saved through another context.
+    func reloadRelationships<Model: PersistentModel>(of model: Model, _ keyPaths: [PartialKeyPath<Model>]) {
+        let modelID = model.persistentModelID
+        var descriptor = FetchDescriptor<Model>(predicate: #Predicate { $0.persistentModelID == modelID })
+        descriptor.relationshipKeyPathsForPrefetching = keyPaths
+        do {
+            _ = try fetch(descriptor)
+        } catch {
+            Logger(subsystem: "com.matthewstone.liftly", category: "Persistence")
+                .error("Failed to reload relationships: \(String(describing: error), privacy: .public)")
+        }
     }
 }

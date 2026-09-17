@@ -211,11 +211,16 @@ final class ProgressViewModel {
     ) -> Result<LoggedSet, PersistenceCommandError> {
         guard !exercise.isDeleted else { return .failure(.unavailable) }
 
-        let result = commandRunner.perform(in: context) { context in
-            let existingSets = try Self.loggedSets(for: exercise, in: context)
-            let set = LoggedSet(exercise: exercise, reps: reps, weight: weight)
+        let result = commandRunner.performInsert(in: context) { context in
+            context.reloadRelationships(of: exercise, [\.loggedSets])
+        } _: { insertionContext in
+            guard let insertionExercise = try insertionContext.existingModel(exercise) else {
+                throw PersistenceCommandError.unavailable
+            }
+            let existingSets = try Self.loggedSets(for: insertionExercise, in: insertionContext)
+            let set = LoggedSet(exercise: insertionExercise, reps: reps, weight: weight)
             set.completedAt = completedAt
-            context.insert(set)
+            insertionContext.insert(set)
             Self.recalculatePersonalRecords(in: existingSets + [set], repCounts: [reps])
             return set
         }

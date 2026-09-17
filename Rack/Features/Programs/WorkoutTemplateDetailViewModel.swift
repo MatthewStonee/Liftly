@@ -37,18 +37,25 @@ final class WorkoutTemplateDetailViewModel {
     ) -> Result<PlannedExercise, PersistenceCommandError> {
         guard !workout.isDeleted, !exercise.isDeleted else { return .failure(.unavailable) }
 
-        return commandRunner.perform(in: context) { context in
+        return commandRunner.performInsert(in: context) { context in
+            context.reloadRelationships(of: workout, [\.plannedExercises])
+            context.reloadRelationships(of: exercise, [\.plannedExercises])
+        } _: { insertionContext in
+            guard let insertionWorkout = try insertionContext.existingModel(workout),
+                  let insertionExercise = try insertionContext.existingModel(exercise) else {
+                throw PersistenceCommandError.unavailable
+            }
             let planned = PlannedExercise(
-                exercise: exercise,
+                exercise: insertionExercise,
                 sets: 3,
                 reps: PlannedRepTargetDefaults.exactReps,
                 repTargetType: repTargetType,
                 repRangeLowerBound: PlannedRepTargetDefaults.rangeLowerBound,
                 repRangeUpperBound: PlannedRepTargetDefaults.rangeUpperBound,
-                orderIndex: workout.plannedExercisesList.count
+                orderIndex: insertionWorkout.plannedExercisesList.count
             )
-            planned.workoutTemplate = workout
-            context.insert(planned)
+            planned.workoutTemplate = insertionWorkout
+            insertionContext.insert(planned)
             return planned
         }
     }

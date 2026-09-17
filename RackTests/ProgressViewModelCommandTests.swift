@@ -91,6 +91,9 @@ struct ProgressViewModelCommandTests {
 
         #expect(try TestStore.savedModels(LoggedSet.self, in: container).count == 2)
         #expect(try savedRecordIDs() == [retried.id])
+        #expect(retried.modelContext === context)
+        #expect(!previous.isPersonalRecord)
+        #expect(Set(exercise.loggedSetsList.map(\.id)) == [previous.id, retried.id])
         #expect(viewModel.exerciseMetrics.personalRecord?.id == retried.id)
     }
 
