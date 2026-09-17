@@ -8,14 +8,12 @@ struct ProgramDetailView: View {
     var onDeleteProgram: (() -> Void)?
     @State private var showingAddWorkout = false
     @State private var showingEditProgram = false
-    @State private var pendingDeleteWorkout: WorkoutTemplate?
-    @State private var workoutDeleteTask: Task<Void, Never>?
     @State private var viewModel = ProgramDetailViewModel()
     @State private var isReorderMode = false
     @State private var selectedWorkout: WorkoutTemplate?
     @State private var persistenceAlert: PersistenceAlert?
     @State private var showingPersistenceAlert = false
-    @Environment(PersistenceAlertCenter.self) private var alertCenter: PersistenceAlertCenter?
+    @Environment(DeletionCoordinator.self) private var deletionCoordinator: DeletionCoordinator?
     @AppStorage("programDetailViewMode") private var detailMode: ProgramDetailMode = .days
 
     private var gradient: some View {
@@ -28,12 +26,11 @@ struct ProgramDetailView: View {
 
     var body: some View {
         let workouts = program.workoutsList
-        let visibleWorkouts = workouts
-            .sorted { $0.orderIndex < $1.orderIndex }
-            .filter { $0.id != pendingDeleteWorkout?.id }
+        let visibleWorkouts = SiblingOrder.workouts(workouts)
+            .filter { deletionCoordinator?.isPending($0) != true }
         let exerciseCount = workouts.reduce(0) { $0 + $1.plannedExercisesList.count }
         let canToggleReorderMode = detailMode == .days
-            && pendingDeleteWorkout == nil
+            && deletionCoordinator?.hasPendingWorkouts(in: program) != true
             && !showingAddWorkout
             && visibleWorkouts.count > 1
 
@@ -57,7 +54,7 @@ struct ProgramDetailView: View {
                         GlassEffectContainer(spacing: 12) {
                             ReorderableForEach(
                                 items: visibleWorkouts,
-                                isEnabled: isReorderMode,
+                                isEnabled: isReorderMode && canToggleReorderMode,
                                 onCommitOrder: { orderedIDs in
                                     commitWorkoutOrder(orderedIDs)
                                 }
@@ -71,7 +68,7 @@ struct ProgramDetailView: View {
                                         selectedWorkout = workout
                                     }
                                 )
-                                .accessibilityElement()
+                                .accessibilityElement(children: .contain)
                                 .accessibilityLabel(workout.name)
                                 .accessibilityAddTraits(.isButton)
                             }
@@ -151,25 +148,16 @@ struct ProgramDetailView: View {
             }
         }
         .sheet(isPresented: $showingEditProgram) {
-            CreateProgramView(existingProgram: program)
+            CreateProgramView(existingProgram: program).deletionUndoToast(deletionCoordinator)
         }
         .onChange(of: detailMode) { _, newMode in
             if newMode == .overview {
                 exitReorderMode()
             }
         }
-        .undoToast(
-            isPresented: Binding(
-                get: { pendingDeleteWorkout != nil },
-                set: { if !$0 { pendingDeleteWorkout = nil } }
-            ),
-            message: "Workout day deleted",
-            onUndo: {
-                workoutDeleteTask?.cancel()
-                workoutDeleteTask = nil
-                pendingDeleteWorkout = nil
-            }
-        )
+        .onChange(of: deletionCoordinator?.hasPendingWorkouts(in: program)) { _, pending in
+            if pending == true { exitReorderMode() }
+        }
         .persistenceAlert(isPresented: $showingPersistenceAlert, alert: persistenceAlert)
     }
 
@@ -289,6 +277,7 @@ struct ProgramDetailView: View {
     }
 
     private func commitWorkoutOrder(_ orderedIDs: [UUID]) {
+        guard deletionCoordinator?.hasPendingWorkouts(in: program) != true else { return }
         if case .failure(let error) = viewModel.reorderWorkouts(in: program, orderedIDs: orderedIDs, context: context) {
             presentPersistenceAlert(title: "Couldn't Save Order", error: error)
         }
@@ -296,22 +285,7 @@ struct ProgramDetailView: View {
 
     private func scheduleDeletion(of workout: WorkoutTemplate) {
         exitReorderMode()
-        pendingDeleteWorkout = workout
-        let viewModel = viewModel
-        let context = context
-        let alertCenter = alertCenter
-
-        workoutDeleteTask = Task {
-            try? await Task.sleep(for: .seconds(4))
-            guard !Task.isCancelled else { return }
-            await MainActor.run {
-                // Report at the app level so the failure stays visible after navigation.
-                if case .failure(let error) = viewModel.deleteWorkout(workout, context: context) {
-                    alertCenter?.report(PersistenceAlert(title: "Couldn't Delete Workout Day", error: error))
-                }
-                pendingDeleteWorkout = nil
-            }
-        }
+        deletionCoordinator?.request(workout)
     }
 
     private func presentPersistenceAlert(title: String, error: PersistenceCommandError) {

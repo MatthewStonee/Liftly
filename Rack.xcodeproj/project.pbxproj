@@ -6,8 +6,36 @@
 	objectVersion = 77;
 	objects = {
 
+/* Begin PBXBuildFile section */
+		34B0A5FA305C612100EE0FCF /* ProgramCommandTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 34B0A5F5305C612100EE0FCF /* ProgramCommandTests.swift */; };
+		34B0A5FB305C612100EE0FCF /* P2RegressionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 34B0A5F3305C612100EE0FCF /* P2RegressionTests.swift */; };
+		34B0A5FC305C612100EE0FCF /* AppDataStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 34B0A5F2305C612100EE0FCF /* AppDataStoreTests.swift */; };
+		34B0A5FD305C612100EE0FCF /* WeightInputTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 34B0A5F8305C612100EE0FCF /* WeightInputTests.swift */; };
+		34B0A5FE305C612100EE0FCF /* ProgressViewModelCommandTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 34B0A5F6305C612100EE0FCF /* ProgressViewModelCommandTests.swift */; };
+		34B0A5FF305C612100EE0FCF /* TestSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 34B0A5F7305C612100EE0FCF /* TestSupport.swift */; };
+		34B0A600305C612100EE0FCF /* PersistenceCommandRunnerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 34B0A5F4305C612100EE0FCF /* PersistenceCommandRunnerTests.swift */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		34B0A5ED305C5CA200EE0FCF /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 34300FDF2F7C4E0B00BD6A4F /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 34300FE62F7C4E0B00BD6A4F;
+			remoteInfo = Rack;
+		};
+/* End PBXContainerItemProxy section */
+
 /* Begin PBXFileReference section */
 		34300FE72F7C4E0B00BD6A4F /* Rack.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Rack.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		34B0A5E9305C5CA200EE0FCF /* LiftlyUnitTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = LiftlyUnitTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		34B0A5F2305C612100EE0FCF /* AppDataStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDataStoreTests.swift; sourceTree = "<group>"; };
+		34B0A5F3305C612100EE0FCF /* P2RegressionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = P2RegressionTests.swift; sourceTree = "<group>"; };
+		34B0A5F4305C612100EE0FCF /* PersistenceCommandRunnerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PersistenceCommandRunnerTests.swift; sourceTree = "<group>"; };
+		34B0A5F5305C612100EE0FCF /* ProgramCommandTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProgramCommandTests.swift; sourceTree = "<group>"; };
+		34B0A5F6305C612100EE0FCF /* ProgressViewModelCommandTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProgressViewModelCommandTests.swift; sourceTree = "<group>"; };
+		34B0A5F7305C612100EE0FCF /* TestSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TestSupport.swift; sourceTree = "<group>"; };
+		34B0A5F8305C612100EE0FCF /* WeightInputTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WeightInputTests.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -29,10 +57,22 @@
 			path = Rack;
 			sourceTree = "<group>";
 		};
+		34B0A5EA305C5CA200EE0FCF /* LiftlyUnitTests */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = LiftlyUnitTests;
+			sourceTree = "<group>";
+		};
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
 		34300FE42F7C4E0B00BD6A4F /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		34B0A5E6305C5CA200EE0FCF /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -45,7 +85,9 @@
 		34300FDE2F7C4E0B00BD6A4F = {
 			isa = PBXGroup;
 			children = (
+				34B0A5F9305C612100EE0FCF /* RackTests */,
 				34300FE92F7C4E0B00BD6A4F /* Rack */,
+				34B0A5EA305C5CA200EE0FCF /* LiftlyUnitTests */,
 				34300FE82F7C4E0B00BD6A4F /* Products */,
 			);
 			sourceTree = "<group>";
@@ -54,8 +96,23 @@
 			isa = PBXGroup;
 			children = (
 				34300FE72F7C4E0B00BD6A4F /* Rack.app */,
+				34B0A5E9305C5CA200EE0FCF /* LiftlyUnitTests.xctest */,
 			);
 			name = Products;
+			sourceTree = "<group>";
+		};
+		34B0A5F9305C612100EE0FCF /* RackTests */ = {
+			isa = PBXGroup;
+			children = (
+				34B0A5F2305C612100EE0FCF /* AppDataStoreTests.swift */,
+				34B0A5F3305C612100EE0FCF /* P2RegressionTests.swift */,
+				34B0A5F4305C612100EE0FCF /* PersistenceCommandRunnerTests.swift */,
+				34B0A5F5305C612100EE0FCF /* ProgramCommandTests.swift */,
+				34B0A5F6305C612100EE0FCF /* ProgressViewModelCommandTests.swift */,
+				34B0A5F7305C612100EE0FCF /* TestSupport.swift */,
+				34B0A5F8305C612100EE0FCF /* WeightInputTests.swift */,
+			);
+			path = RackTests;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -83,6 +140,29 @@
 			productReference = 34300FE72F7C4E0B00BD6A4F /* Rack.app */;
 			productType = "com.apple.product-type.application";
 		};
+		34B0A5E8305C5CA200EE0FCF /* LiftlyUnitTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 34B0A5EF305C5CA300EE0FCF /* Build configuration list for PBXNativeTarget "LiftlyUnitTests" */;
+			buildPhases = (
+				34B0A5E5305C5CA200EE0FCF /* Sources */,
+				34B0A5E6305C5CA200EE0FCF /* Frameworks */,
+				34B0A5E7305C5CA200EE0FCF /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				34B0A5EE305C5CA200EE0FCF /* PBXTargetDependency */,
+			);
+			fileSystemSynchronizedGroups = (
+				34B0A5EA305C5CA200EE0FCF /* LiftlyUnitTests */,
+			);
+			name = LiftlyUnitTests;
+			packageProductDependencies = (
+			);
+			productName = LiftlyUnitTests;
+			productReference = 34B0A5E9305C5CA200EE0FCF /* LiftlyUnitTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -90,11 +170,15 @@
 			isa = PBXProject;
 			attributes = {
 				BuildIndependentTargetsInParallel = 1;
-				LastSwiftUpdateCheck = 2630;
+				LastSwiftUpdateCheck = 2700;
 				LastUpgradeCheck = 2640;
 				TargetAttributes = {
 					34300FE62F7C4E0B00BD6A4F = {
 						CreatedOnToolsVersion = 26.3;
+					};
+					34B0A5E8305C5CA200EE0FCF = {
+						CreatedOnToolsVersion = 27.0;
+						TestTargetID = 34300FE62F7C4E0B00BD6A4F;
 					};
 				};
 			};
@@ -113,12 +197,20 @@
 			projectRoot = "";
 			targets = (
 				34300FE62F7C4E0B00BD6A4F /* Rack */,
+				34B0A5E8305C5CA200EE0FCF /* LiftlyUnitTests */,
 			);
 		};
 /* End PBXProject section */
 
 /* Begin PBXResourcesBuildPhase section */
 		34300FE52F7C4E0B00BD6A4F /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		34B0A5E7305C5CA200EE0FCF /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -135,7 +227,29 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		34B0A5E5305C5CA200EE0FCF /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				34B0A5FA305C612100EE0FCF /* ProgramCommandTests.swift in Sources */,
+				34B0A5FB305C612100EE0FCF /* P2RegressionTests.swift in Sources */,
+				34B0A5FC305C612100EE0FCF /* AppDataStoreTests.swift in Sources */,
+				34B0A5FD305C612100EE0FCF /* WeightInputTests.swift in Sources */,
+				34B0A5FE305C612100EE0FCF /* ProgressViewModelCommandTests.swift in Sources */,
+				34B0A5FF305C612100EE0FCF /* TestSupport.swift in Sources */,
+				34B0A600305C612100EE0FCF /* PersistenceCommandRunnerTests.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		34B0A5EE305C5CA200EE0FCF /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 34300FE62F7C4E0B00BD6A4F /* Rack */;
+			targetProxy = 34B0A5ED305C5CA200EE0FCF /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
 		34300FF02F7C4E0D00BD6A4F /* Debug */ = {
@@ -241,6 +355,7 @@
 				DEVELOPMENT_TEAM = XLW8A9X97L;
 				ENABLE_NS_ASSERTIONS = NO;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
 				ENABLE_USER_SCRIPT_SANDBOXING = YES;
 				GCC_C_LANGUAGE_STANDARD = gnu17;
 				GCC_NO_COMMON_BLOCKS = YES;
@@ -284,10 +399,10 @@
 				"INFOPLIST_KEY_UIStatusBarStyle[sdk=iphonesimulator*]" = UIStatusBarStyleDefault;
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
-				IPHONEOS_DEPLOYMENT_TARGET = 26.2;
+				IPHONEOS_DEPLOYMENT_TARGET = 27.0;
 				LD_RUNPATH_SEARCH_PATHS = "@executable_path/Frameworks";
 				"LD_RUNPATH_SEARCH_PATHS[sdk=macosx*]" = "@executable_path/../Frameworks";
-				MACOSX_DEPLOYMENT_TARGET = 26.2;
+				MACOSX_DEPLOYMENT_TARGET = 27.0;
 				MARKETING_VERSION = 1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.matthewstone.liftly;
 				PRODUCT_NAME = "$(TARGET_NAME)";
@@ -301,8 +416,8 @@
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
 				SWIFT_VERSION = 5.0;
-				TARGETED_DEVICE_FAMILY = "1,2";
-				XROS_DEPLOYMENT_TARGET = 26.2;
+				TARGETED_DEVICE_FAMILY = 1;
+				XROS_DEPLOYMENT_TARGET = "$(RECOMMENDED_XROS_DEPLOYMENT_TARGET)";
 			};
 			name = Debug;
 		};
@@ -332,10 +447,10 @@
 				"INFOPLIST_KEY_UIStatusBarStyle[sdk=iphonesimulator*]" = UIStatusBarStyleDefault;
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
-				IPHONEOS_DEPLOYMENT_TARGET = 26.2;
+				IPHONEOS_DEPLOYMENT_TARGET = 27.0;
 				LD_RUNPATH_SEARCH_PATHS = "@executable_path/Frameworks";
 				"LD_RUNPATH_SEARCH_PATHS[sdk=macosx*]" = "@executable_path/../Frameworks";
-				MACOSX_DEPLOYMENT_TARGET = 26.2;
+				MACOSX_DEPLOYMENT_TARGET = 27.0;
 				MARKETING_VERSION = 1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.matthewstone.liftly;
 				PRODUCT_NAME = "$(TARGET_NAME)";
@@ -349,8 +464,63 @@
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
 				SWIFT_VERSION = 5.0;
-				TARGETED_DEVICE_FAMILY = "1,2";
-				XROS_DEPLOYMENT_TARGET = 26.2;
+				TARGETED_DEVICE_FAMILY = 1;
+				XROS_DEPLOYMENT_TARGET = "$(RECOMMENDED_XROS_DEPLOYMENT_TARGET)";
+			};
+			name = Release;
+		};
+		34B0A5F0305C5CA300EE0FCF /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = XLW8A9X97L;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 27.0;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = Stone.LiftlyUnitTests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				STRING_CATALOG_GENERATE_SYMBOLS = NO;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SUPPORTS_MACCATALYST = NO;
+				SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = NO;
+				SUPPORTS_XR_DESIGNED_FOR_IPHONE_IPAD = NO;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 1;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Rack.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/Rack";
+			};
+			name = Debug;
+		};
+		34B0A5F1305C5CA300EE0FCF /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = XLW8A9X97L;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 27.0;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = Stone.LiftlyUnitTests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				STRING_CATALOG_GENERATE_SYMBOLS = NO;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SUPPORTS_MACCATALYST = NO;
+				SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = NO;
+				SUPPORTS_XR_DESIGNED_FOR_IPHONE_IPAD = NO;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 1;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Rack.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/Rack";
+				VALIDATE_PRODUCT = YES;
 			};
 			name = Release;
 		};
@@ -371,6 +541,15 @@
 			buildConfigurations = (
 				34300FF32F7C4E0D00BD6A4F /* Debug */,
 				34300FF42F7C4E0D00BD6A4F /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		34B0A5EF305C5CA300EE0FCF /* Build configuration list for PBXNativeTarget "LiftlyUnitTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				34B0A5F0305C5CA300EE0FCF /* Debug */,
+				34B0A5F1305C5CA300EE0FCF /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;

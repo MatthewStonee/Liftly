@@ -1,5 +1,39 @@
 import SwiftUI
 
+/// A drop is valid only for the drag that began in this exact sibling collection.
+struct ReorderDropSession<ID: Hashable> {
+    let activeID: ID
+    let initialIDs: [ID]
+
+    func acceptedOrder(payloadID: ID, currentIDs: [ID], rawIndex: Int) -> [ID]? {
+        guard payloadID == activeID, currentIDs == initialIDs,
+              let sourceIndex = initialIDs.firstIndex(of: activeID) else { return nil }
+        let boundedIndex = min(max(rawIndex, 0), initialIDs.count)
+        let destinationIndex = boundedIndex > sourceIndex ? boundedIndex - 1 : boundedIndex
+        var result = initialIDs
+        result.remove(at: sourceIndex)
+        result.insert(activeID, at: destinationIndex)
+        return result
+    }
+}
+
+struct ReorderDragState<ID: Hashable> {
+    private(set) var session: ReorderDropSession<ID>?
+
+    mutating func begin(id: ID, collection: [ID]) {
+        session = ReorderDropSession(activeID: id, initialIDs: collection)
+    }
+
+    mutating func cancel() {
+        session = nil
+    }
+
+    mutating func accept(payloadID: ID, collection: [ID], rawIndex: Int) -> [ID]? {
+        defer { session = nil }
+        return session?.acceptedOrder(payloadID: payloadID, currentIDs: collection, rawIndex: rawIndex)
+    }
+}
+
 struct ReorderDragHandle: View {
     let payload: String
     let isEnabled: Bool
@@ -28,7 +62,7 @@ struct ReorderDragHandle: View {
                 icon
             }
         }
-        .accessibilityLabel("Reorder")
+        .accessibilityLabel("Drag to reorder")
     }
 }
 
@@ -44,20 +78,19 @@ private struct ReorderDragPreview: View {
     }
 }
 
-/// A vertically stacked ForEach that supports handle-based drag-and-drop reordering.
-/// Place inside a ScrollView. The view owns a temporary drag order and asks the
-/// parent to persist the committed order via `onCommitOrder`.
+/// A vertically stacked ForEach that saves only an accepted drop or VoiceOver move.
+/// Place inside a ScrollView; the parent persists through `onCommitOrder`.
 struct ReorderableForEach<T: Identifiable, Content: View>: View where T.ID: Hashable {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     let items: [T]
     let isEnabled: Bool
     let onCommitOrder: (_ orderedIDs: [T.ID]) -> Void
     @ViewBuilder let content: (T, _ dragHandle: ReorderDragHandle) -> Content
 
-    @State private var workingItems: [T]? = nil
     @State private var draggedID: T.ID? = nil
+    @State private var dragState = ReorderDragState<T.ID>()
     @State private var targetInsertionIndex: Int? = nil
     @State private var isDropTargeted = false
-    @State private var didCommitDrop = false
     @State private var dragStartFeedbackTrigger = 0
     @State private var insertionFeedbackTrigger = 0
     @State private var commitFeedbackTrigger = 0
@@ -72,8 +105,14 @@ struct ReorderableForEach<T: Identifiable, Content: View>: View where T.ID: Hash
             ForEach(Array(displayItems.enumerated()), id: \.element.id) { index, item in
                 content(item, dragHandle(for: item))
                     .opacity(isEnabled && draggedID == item.id ? 0.3 : 1.0)
-                    .scaleEffect(isEnabled && draggedID == item.id ? 0.98 : 1.0)
+                    .scaleEffect(!reduceMotion && isEnabled && draggedID == item.id ? 0.98 : 1.0)
                     .zIndex(draggedID == item.id ? 1 : 0)
+                    .accessibilityActions {
+                        if isEnabled {
+                            Button("Move Up") { moveByOne(item.id, offset: -1) }
+                            Button("Move Down") { moveByOne(item.id, offset: 1) }
+                        }
+                    }
                     .background {
                         if isEnabled {
                             rowDropTargets(for: index)
@@ -95,8 +134,8 @@ struct ReorderableForEach<T: Identifiable, Content: View>: View where T.ID: Hash
                 appendDropZone
             }
         }
-        .animation(.spring(response: 0.28, dampingFraction: 0.84), value: targetInsertionIndex)
-        .animation(.easeInOut(duration: 0.18), value: isDropTargeted)
+        .animation(reduceMotion ? nil : .spring(response: 0.28, dampingFraction: 0.84), value: targetInsertionIndex)
+        .animation(reduceMotion ? nil : .easeInOut(duration: 0.18), value: isDropTargeted)
         .sensoryFeedback(.impact(flexibility: .soft, intensity: 0.45), trigger: dragStartFeedbackTrigger)
         .sensoryFeedback(.selection, trigger: insertionFeedbackTrigger)
         .sensoryFeedback(.impact(flexibility: .solid, intensity: 0.7), trigger: commitFeedbackTrigger)
@@ -109,18 +148,16 @@ struct ReorderableForEach<T: Identifiable, Content: View>: View where T.ID: Hash
                 resetDragState()
             }
         }
-        .onChange(of: itemTokens) { _, _ in
-            if let targetInsertionIndex, targetInsertionIndex > displayItems.count {
-                self.targetInsertionIndex = displayItems.count
-                indicatorTarget = .append
-            } else if targetInsertionIndex == nil {
-                indicatorTarget = nil
+        .onChange(of: itemTokens) { _, newIDs in
+            if let session = dragState.session, session.initialIDs != newIDs {
+                resetDragState()
             }
         }
+        .onDisappear(perform: resetDragState)
     }
 
     private var displayItems: [T] {
-        workingItems ?? items
+        items
     }
 
     private var itemTokens: [T.ID] {
@@ -253,8 +290,7 @@ struct ReorderableForEach<T: Identifiable, Content: View>: View where T.ID: Hash
     private func beginDrag(for id: T.ID) {
         guard isEnabled else { return }
         draggedID = id
-        didCommitDrop = false
-        workingItems = items
+        dragState.begin(id: id, collection: items.map(\.id))
 
         if let currentIndex = displayItems.firstIndex(where: { $0.id == id }) {
             targetInsertionIndex = currentIndex
@@ -267,11 +303,6 @@ struct ReorderableForEach<T: Identifiable, Content: View>: View where T.ID: Hash
 
     private func endDrag(for id: T.ID) {
         guard draggedID == id else { return }
-
-        if !didCommitDrop, let targetInsertionIndex {
-            _ = moveItem(with: id, to: targetInsertionIndex)
-        }
-
         resetDragState()
     }
 
@@ -296,42 +327,32 @@ struct ReorderableForEach<T: Identifiable, Content: View>: View where T.ID: Hash
         guard isEnabled else { return false }
 
         guard let payloadToken = payloads.first,
-              let draggedID = displayItems.first(where: { dragToken(for: $0.id) == payloadToken })?.id else {
+              let session = dragState.session,
+              payloadToken == dragToken(for: session.activeID),
+              let accepted = dragState.accept(
+                payloadID: session.activeID,
+                collection: items.map(\.id),
+                rawIndex: rawIndex
+              ) else {
             resetDragState()
             return false
         }
-
-        didCommitDrop = true
-        let didMove = moveItem(with: draggedID, to: rawIndex)
-
-        if didMove {
-            resetDragState()
+        if accepted != items.map(\.id) {
+            onCommitOrder(accepted)
+            commitFeedbackTrigger += 1
         }
-
-        return didMove
+        resetDragState()
+        return true
     }
 
-    private func moveItem(with id: T.ID, to rawIndex: Int) -> Bool {
-        let currentItems = displayItems
-        guard let sourceIndex = currentItems.firstIndex(where: { $0.id == id }) else {
-            return false
-        }
-
-        let boundedRawIndex = min(max(rawIndex, 0), currentItems.count)
-        let destinationIndex = boundedRawIndex > sourceIndex ? boundedRawIndex - 1 : boundedRawIndex
-
-        guard destinationIndex != sourceIndex else {
-            return true
-        }
-
-        var reordered = currentItems
-        let movedItem = reordered.remove(at: sourceIndex)
-        reordered.insert(movedItem, at: min(max(destinationIndex, 0), reordered.count))
-
-        workingItems = reordered
-        onCommitOrder(reordered.map(\.id))
+    private func moveByOne(_ id: T.ID, offset: Int) {
+        guard isEnabled, let source = items.firstIndex(where: { $0.id == id }) else { return }
+        let target = source + offset
+        guard items.indices.contains(target) else { return }
+        var ordered = items.map(\.id)
+        ordered.swapAt(source, target)
+        onCommitOrder(ordered)
         commitFeedbackTrigger += 1
-        return true
     }
 
     private func triggerInsertionFeedbackIfNeeded(for target: IndicatorTarget) {
@@ -341,12 +362,11 @@ struct ReorderableForEach<T: Identifiable, Content: View>: View where T.ID: Hash
     }
 
     private func resetDragState() {
-        workingItems = nil
         draggedID = nil
+        dragState.cancel()
         targetInsertionIndex = nil
         isDropTargeted = false
         indicatorTarget = nil
         lastFeedbackTarget = nil
-        didCommitDrop = false
     }
 }

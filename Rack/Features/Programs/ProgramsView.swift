@@ -7,15 +7,13 @@ struct ProgramsView: View {
     @State private var viewModel = ProgramsViewModel()
     @State private var showingCreateProgram = false
     @State private var showingSettings = false
-    @State private var pendingDeleteProgram: Program?
-    @State private var deleteTask: Task<Void, Never>?
     @State private var selectedProgram: Program?
     @State private var persistenceAlert: PersistenceAlert?
     @State private var showingPersistenceAlert = false
-    @Environment(PersistenceAlertCenter.self) private var alertCenter: PersistenceAlertCenter?
+    @Environment(DeletionCoordinator.self) private var deletionCoordinator: DeletionCoordinator?
 
     var body: some View {
-        let visiblePrograms = programs.filter { $0.id != pendingDeleteProgram?.id }
+        let visiblePrograms = programs.filter { deletionCoordinator?.isPending($0) != true }
         let activeProgram = visiblePrograms.first { $0.isActive }
         let otherPrograms = visiblePrograms.filter { !$0.isActive }
 
@@ -37,21 +35,9 @@ struct ProgramsView: View {
             .titleDisplayMode(.large)
             .navigationDestination(item: $selectedProgram) { program in
                 ProgramDetailView(program: program, onDeleteProgram: {
-                    scheduleDeletion(of: program)
+                    deletionCoordinator?.request(program)
                 })
             }
-            .undoToast(
-                isPresented: Binding(
-                    get: { pendingDeleteProgram != nil },
-                    set: { if !$0 { pendingDeleteProgram = nil } }
-                ),
-                message: "Program deleted",
-                onUndo: {
-                    deleteTask?.cancel()
-                    deleteTask = nil
-                    pendingDeleteProgram = nil
-                }
-            )
             .toolbar {
                 ToolbarItem(placement: .navigationBarLeading) {
                     Button {
@@ -74,31 +60,12 @@ struct ProgramsView: View {
             }
         }
         .sheet(isPresented: $showingCreateProgram) {
-            CreateProgramView()
+            CreateProgramView().deletionUndoToast(deletionCoordinator)
         }
         .sheet(isPresented: $showingSettings) {
-            SettingsView()
+            SettingsView().deletionUndoToast(deletionCoordinator)
         }
         .persistenceAlert(isPresented: $showingPersistenceAlert, alert: persistenceAlert)
-    }
-
-    private func scheduleDeletion(of program: Program) {
-        pendingDeleteProgram = program
-        let viewModel = viewModel
-        let context = context
-        let alertCenter = alertCenter
-
-        deleteTask = Task {
-            try? await Task.sleep(for: .seconds(4))
-            guard !Task.isCancelled else { return }
-            await MainActor.run {
-                // Report at the app level so the failure stays visible after navigation.
-                if case .failure(let error) = viewModel.deleteProgram(program, context: context) {
-                    alertCenter?.report(PersistenceAlert(title: "Couldn't Delete Program", error: error))
-                }
-                pendingDeleteProgram = nil
-            }
-        }
     }
 
     private func activate(_ program: Program) {

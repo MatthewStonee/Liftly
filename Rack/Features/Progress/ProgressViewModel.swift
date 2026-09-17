@@ -18,6 +18,8 @@ struct ExerciseProgressChartPoint: Identifiable, Equatable {
     let weight: Double
 
     var id: Date { date }
+
+    func displayWeight(unit: WeightUnit) -> Double { unit.display(weight) }
 }
 
 struct ExerciseProgressMetrics {
@@ -39,9 +41,19 @@ final class ProgressViewModel {
     var exerciseMetrics = ExerciseProgressMetrics()
     @ObservationIgnored private var allSetsAscending: [LoggedSet] = []
     @ObservationIgnored private let commandRunner: PersistenceCommandRunner
+    @ObservationIgnored private let historyLoader: (Exercise, ModelContext) throws -> [LoggedSet]
 
-    init(commandRunner: PersistenceCommandRunner = PersistenceCommandRunner()) {
+    init(
+        commandRunner: PersistenceCommandRunner = PersistenceCommandRunner(),
+        historyLoader: @escaping (Exercise, ModelContext) throws -> [LoggedSet] = { exercise, context in
+            let exerciseID = exercise.id
+            return try context.fetch(FetchDescriptor<LoggedSet>(
+                predicate: #Predicate<LoggedSet> { $0.exercise?.id == exerciseID }
+            ))
+        }
+    ) {
         self.commandRunner = commandRunner
+        self.historyLoader = historyLoader
     }
 
     enum TimeRange: String, CaseIterable {
@@ -76,6 +88,8 @@ final class ProgressViewModel {
     func refreshOverview(
         activeProgram: Program?,
         modelContainer: ModelContainer,
+        excludingWorkoutIDs: Set<UUID> = [],
+        excludingPlannedIDs: Set<UUID> = [],
         now: Date = Date()
     ) async {
         guard let activeProgram else {
@@ -84,8 +98,8 @@ final class ProgressViewModel {
         }
 
         var exercisesByID: [UUID: Exercise] = [:]
-        for workout in activeProgram.workoutsList {
-            for plannedExercise in workout.plannedExercisesList {
+        for workout in activeProgram.workoutsList where !excludingWorkoutIDs.contains(workout.id) {
+            for plannedExercise in workout.plannedExercisesList where !excludingPlannedIDs.contains(plannedExercise.id) {
                 guard let exercise = plannedExercise.exercise else { continue }
                 exercisesByID[exercise.id] = exercise
             }
@@ -171,10 +185,35 @@ final class ProgressViewModel {
     }
 
     func refreshExerciseMetrics(with sets: [LoggedSet]) {
-        allSetsAscending = sets
-        exerciseMetrics.personalRecord = personalRecord(for: sets)
-        exerciseMetrics.latestSet = sets.last
+        let ordered = Self.historyNewestFirst(sets).reversed()
+        allSetsAscending = Array(ordered)
+        exerciseMetrics.personalRecord = personalRecord(for: allSetsAscending)
+        exerciseMetrics.latestSet = allSetsAscending.last
         refreshRangeMetrics()
+    }
+
+    static func historyNewestFirst(_ sets: [LoggedSet]) -> [LoggedSet] {
+        sets.sorted {
+            $0.completedAt == $1.completedAt
+                ? $0.id.uuidString < $1.id.uuidString
+                : $0.completedAt > $1.completedAt
+        }
+    }
+
+    func fetchHistory(for exercise: Exercise, context: ModelContext) -> Result<[LoggedSet], PersistenceCommandError> {
+        do {
+            let sets = try historyLoader(exercise, context)
+            return .success(Self.historyNewestFirst(sets))
+        } catch {
+            Self.logger.error("Failed to fetch exercise history: \(String(describing: error), privacy: .public)")
+            return .failure(.failed(String(describing: error)))
+        }
+    }
+
+    static func history(_ sets: [LoggedSet], in range: TimeRange, now: Date = .now) -> [LoggedSet] {
+        guard let days = range.days else { return sets }
+        let cutoff = Calendar.current.date(byAdding: .day, value: -days, to: now) ?? now
+        return sets.filter { $0.completedAt >= cutoff }
     }
 
     func refreshExerciseMetrics(for exercise: Exercise, context: ModelContext) {
@@ -272,17 +311,30 @@ final class ProgressViewModel {
         let exercise = set.exercise
 
         let result = commandRunner.perform(in: context) { context in
-            let reps = set.reps
-            let remainingSets = try exercise.map { exercise in
-                try Self.loggedSets(for: exercise, in: context).filter { $0.id != set.id }
-            } ?? []
-            context.delete(set)
-            Self.recalculatePersonalRecords(in: remainingSets, repCounts: [reps])
+            try Self.deleteSetsInCommand([set], context: context)
         }
         if let exercise {
             refreshExerciseMetrics(for: exercise, context: context)
         }
         return result
+    }
+
+    /// Used by the app deletion batch so all requested sets and their PR flags save together.
+    static func deleteSetsInCommand(_ sets: [LoggedSet], context: ModelContext) throws {
+        let liveSets = sets.filter { !$0.isDeleted }
+        let removedIDs = Set(liveSets.map(\.id))
+        let grouped = Dictionary(grouping: liveSets.compactMap { set -> (Exercise, Int)? in
+            set.exercise.map { ($0, set.reps) }
+        }, by: { $0.0.id })
+
+        for set in liveSets {
+            context.delete(set)
+        }
+        for entries in grouped.values {
+            guard let exercise = entries.first?.0 else { continue }
+            let remaining = try loggedSets(for: exercise, in: context).filter { !removedIDs.contains($0.id) }
+            recalculatePersonalRecords(in: remaining, repCounts: entries.map { $0.1 })
+        }
     }
 
     private static func loggedSets(for exercise: Exercise, in context: ModelContext) throws -> [LoggedSet] {

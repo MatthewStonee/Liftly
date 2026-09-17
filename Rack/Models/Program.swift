@@ -53,7 +53,7 @@ final class Program {
     }
 
     var sortedWorkouts: [WorkoutTemplate] {
-        workoutsList.sorted { $0.orderIndex < $1.orderIndex }
+        SiblingOrder.workouts(workoutsList)
     }
 
     var exerciseCount: Int {
@@ -88,7 +88,7 @@ final class WorkoutTemplate {
     }
 
     var sortedExercises: [PlannedExercise] {
-        plannedExercisesList.sorted { $0.orderIndex < $1.orderIndex }
+        SiblingOrder.exercises(plannedExercisesList)
     }
 }
 

@@ -3,6 +3,7 @@ import SwiftData
 
 struct ExercisePickerView: View {
     @Environment(\.dismiss) private var dismiss
+    @Environment(DeletionCoordinator.self) private var deletionCoordinator: DeletionCoordinator?
 
     /// Adds the chosen exercise. The picker closes on success and stays open on failure.
     let onSelect: (Exercise) -> Result<Void, PersistenceCommandError>
@@ -66,7 +67,7 @@ struct ExercisePickerView: View {
                 }
             }
             .sheet(isPresented: $showingCreate) {
-                CreateExerciseView()
+                CreateExerciseView().deletionUndoToast(deletionCoordinator)
             }
             .persistenceAlert(isPresented: $showingSelectionAlert, alert: selectionAlert)
         }

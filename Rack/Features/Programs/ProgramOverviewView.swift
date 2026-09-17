@@ -23,6 +23,7 @@ struct ProgramOverviewView: View {
 private struct ProgramOverviewDaySection: View {
     let workout: WorkoutTemplate
     let dayNumber: Int
+    @Environment(DeletionCoordinator.self) private var deletionCoordinator: DeletionCoordinator?
 
     @AppStorage private var isExpanded: Bool
     @AppStorage("weightUnit") private var weightUnit: WeightUnit = .lbs
@@ -37,7 +38,7 @@ private struct ProgramOverviewDaySection: View {
     }
 
     var body: some View {
-        let exercises = workout.sortedExercises
+        let exercises = workout.sortedExercises.filter { deletionCoordinator?.isPending($0) != true }
         let exerciseCountText = "\(exercises.count) \(exercises.count == 1 ? "exercise" : "exercises")"
 
         GlassCard(cornerRadius: 18, padding: 0) {

@@ -38,13 +38,21 @@ struct AppRootView: View {
 private struct LoadedAppView: View {
     let container: ModelContainer
 
-    @State private var alertCenter = PersistenceAlertCenter()
+    @Environment(\.scenePhase) private var scenePhase
+    @State private var alertCenter: PersistenceAlertCenter
+    @State private var deletionCoordinator: DeletionCoordinator
     @State private var presentedAlert: PersistenceAlert?
     @State private var showingPersistenceAlert = false
     @State private var showingSyncNotice: Bool
 
     init(container: ModelContainer, isCloudSyncUnavailable: Bool) {
         self.container = container
+        let center = PersistenceAlertCenter()
+        _alertCenter = State(initialValue: center)
+        _deletionCoordinator = State(initialValue: DeletionCoordinator(
+            context: container.mainContext,
+            alertCenter: center
+        ))
         _showingSyncNotice = State(initialValue: isCloudSyncUnavailable)
     }
 
@@ -52,6 +60,8 @@ private struct LoadedAppView: View {
         ContentView()
             .modelContainer(container)
             .environment(alertCenter)
+            .environment(deletionCoordinator)
+            .deletionUndoToast(deletionCoordinator)
             .overlay(alignment: .top) {
                 if showingSyncNotice {
                     CloudSyncUnavailableNotice {
@@ -68,6 +78,9 @@ private struct LoadedAppView: View {
                 guard !isShowing, let presentedAlert else { return }
                 self.presentedAlert = nil
                 alertCenter.dismiss(presentedAlert)
+            }
+            .onChange(of: scenePhase) { _, phase in
+                deletionCoordinator.setActive(phase == .active)
             }
             .task(priority: .utility) {
                 await AppDataStore.performStartupMaintenance(container: container)
