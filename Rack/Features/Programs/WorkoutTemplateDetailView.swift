@@ -11,17 +11,14 @@ struct WorkoutTemplateDetailView: View {
     @State private var showingRenameSheet = false
     @State private var viewModel = WorkoutTemplateDetailViewModel()
     @State private var isReorderMode = false
-    @State private var pendingDeleteExercise: PlannedExercise?
-    @State private var exerciseDeleteTask: Task<Void, Never>?
     @State private var persistenceAlert: PersistenceAlert?
     @State private var showingPersistenceAlert = false
-    @Environment(PersistenceAlertCenter.self) private var alertCenter: PersistenceAlertCenter?
+    @Environment(DeletionCoordinator.self) private var deletionCoordinator: DeletionCoordinator?
 
     var body: some View {
-        let visibleExercises = workout.plannedExercisesList
-            .sorted { $0.orderIndex < $1.orderIndex }
-            .filter { $0.id != pendingDeleteExercise?.id }
-        let canToggleReorderMode = pendingDeleteExercise == nil
+        let visibleExercises = SiblingOrder.exercises(workout.plannedExercisesList)
+            .filter { deletionCoordinator?.isPending($0) != true }
+        let canToggleReorderMode = deletionCoordinator?.hasPendingExercises(in: workout) != true
             && !showingExercisePicker
             && visibleExercises.count > 1
 
@@ -33,7 +30,7 @@ struct WorkoutTemplateDetailView: View {
                     GlassEffectContainer(spacing: 12) {
                         ReorderableForEach(
                             items: visibleExercises,
-                            isEnabled: isReorderMode,
+                            isEnabled: isReorderMode && canToggleReorderMode,
                             onCommitOrder: { orderedIDs in
                                 commitExerciseOrder(orderedIDs)
                             }
@@ -108,25 +105,16 @@ struct WorkoutTemplateDetailView: View {
             }
         }
         .sheet(isPresented: $showingRenameSheet) {
-            RenameWorkoutDaySheet(workout: workout)
+            RenameWorkoutDaySheet(workout: workout).deletionUndoToast(deletionCoordinator)
         }
         .sheet(isPresented: $showingExercisePicker) {
             ExercisePickerView { exercise in
                 addExercise(exercise)
-            }
+            }.deletionUndoToast(deletionCoordinator)
         }
-        .undoToast(
-            isPresented: Binding(
-                get: { pendingDeleteExercise != nil },
-                set: { if !$0 { pendingDeleteExercise = nil } }
-            ),
-            message: "Exercise deleted",
-            onUndo: {
-                exerciseDeleteTask?.cancel()
-                exerciseDeleteTask = nil
-                pendingDeleteExercise = nil
-            }
-        )
+        .onChange(of: deletionCoordinator?.hasPendingExercises(in: workout)) { _, pending in
+            if pending == true { exitReorderMode() }
+        }
         .persistenceAlert(isPresented: $showingPersistenceAlert, alert: persistenceAlert)
     }
 
@@ -156,6 +144,7 @@ struct WorkoutTemplateDetailView: View {
     }
 
     private func commitExerciseOrder(_ orderedIDs: [UUID]) {
+        guard deletionCoordinator?.hasPendingExercises(in: workout) != true else { return }
         if case .failure(let error) = viewModel.reorderExercises(in: workout, orderedIDs: orderedIDs, context: context) {
             persistenceAlert = PersistenceAlert(title: "Couldn't Save Order", error: error)
             showingPersistenceAlert = true
@@ -164,23 +153,7 @@ struct WorkoutTemplateDetailView: View {
 
     private func deletePlannedExercise(_ planned: PlannedExercise) {
         exitReorderMode()
-        exerciseDeleteTask?.cancel()
-        pendingDeleteExercise = planned
-        let viewModel = viewModel
-        let context = context
-        let alertCenter = alertCenter
-
-        exerciseDeleteTask = Task {
-            try? await Task.sleep(for: .seconds(4))
-            guard !Task.isCancelled else { return }
-            await MainActor.run {
-                // Report at the app level so the failure stays visible after navigation.
-                if case .failure(let error) = viewModel.deletePlannedExercise(planned, context: context) {
-                    alertCenter?.report(PersistenceAlert(title: "Couldn't Delete Exercise", error: error))
-                }
-                pendingDeleteExercise = nil
-            }
-        }
+        deletionCoordinator?.request(planned)
     }
 
     private func deleteWorkout() {
@@ -207,6 +180,7 @@ struct PlannedExerciseRow: View {
     @State private var showingEdit = false
     @AppStorage("weightUnit") private var weightUnit: WeightUnit = .lbs
     @Environment(\.locale) private var locale
+    @Environment(DeletionCoordinator.self) private var deletionCoordinator: DeletionCoordinator?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -267,12 +241,13 @@ struct PlannedExerciseRow: View {
         }
         .padding(16)
         .glassBackground()
+        .accessibilityElement(children: .contain)
         .accessibilityLabel(planned.exercise?.name ?? "Exercise")
         .sheet(isPresented: $showingEdit) {
             EditPlannedExerciseView(
                 planned: planned,
                 weightInput: WeightInput(unit: weightUnit, locale: locale)
-            )
+            ).deletionUndoToast(deletionCoordinator)
         }
     }
 }

@@ -8,6 +8,7 @@ import Combine
 struct ProgressTabView: View {
     @Environment(\.modelContext) private var context
     @Environment(\.scenePhase) private var scenePhase
+    @Environment(DeletionCoordinator.self) private var deletionCoordinator: DeletionCoordinator?
     @Query(
         filter: #Predicate<Program> { program in
             program.isActive
@@ -41,6 +42,9 @@ struct ProgressTabView: View {
             .onChange(of: activePrograms.first?.id) { _, _ in
                 refreshOverview()
             }
+            .onChange(of: deletionCoordinator?.generation) { _, _ in
+                scheduleOverviewRefresh()
+            }
             .onChange(of: scenePhase) { _, newPhase in
                 if newPhase == .active {
                     scheduleOverviewRefresh()
@@ -57,21 +61,23 @@ struct ProgressTabView: View {
 
     private func refreshOverview() {
         overviewRefreshTask?.cancel()
-        let activeProgram = activePrograms.first
+        let selection = overviewSelection
         let modelContainer = context.container
         let currentViewModel = viewModel
 
         overviewRefreshTask = Task { @MainActor in
             await currentViewModel.refreshOverview(
-                activeProgram: activeProgram,
-                modelContainer: modelContainer
+                activeProgram: selection.program,
+                modelContainer: modelContainer,
+                excludingWorkoutIDs: selection.excludedWorkoutIDs,
+                excludingPlannedIDs: selection.excludedPlannedIDs
             )
         }
     }
 
     private func scheduleOverviewRefresh() {
         overviewRefreshTask?.cancel()
-        let activeProgram = activePrograms.first
+        let selection = overviewSelection
         let modelContainer = context.container
         let currentViewModel = viewModel
 
@@ -79,10 +85,26 @@ struct ProgressTabView: View {
             try? await Task.sleep(for: .milliseconds(200))
             guard !Task.isCancelled else { return }
             await currentViewModel.refreshOverview(
-                activeProgram: activeProgram,
-                modelContainer: modelContainer
+                activeProgram: selection.program,
+                modelContainer: modelContainer,
+                excludingWorkoutIDs: selection.excludedWorkoutIDs,
+                excludingPlannedIDs: selection.excludedPlannedIDs
             )
         }
+    }
+
+    private var overviewSelection: (program: Program?, excludedWorkoutIDs: Set<UUID>, excludedPlannedIDs: Set<UUID>) {
+        guard let program = activePrograms.first,
+              deletionCoordinator?.isPending(program) != true else {
+            return (nil, [], [])
+        }
+        let excludedWorkoutIDs = Set(program.workoutsList.filter {
+            deletionCoordinator?.isPending($0) == true
+        }.map(\.id))
+        let excludedPlannedIDs = Set(program.workoutsList.flatMap { $0.plannedExercisesList }.filter {
+            deletionCoordinator?.isPending($0) == true
+        }.map(\.id))
+        return (program, excludedWorkoutIDs, excludedPlannedIDs)
     }
 
     private var backgroundGradient: some View {
@@ -248,14 +270,13 @@ struct ExerciseProgressRow: View {
 struct ExerciseProgressView: View {
     @Environment(\.modelContext) private var context
     @Environment(\.scenePhase) private var scenePhase
+    @Environment(DeletionCoordinator.self) private var deletionCoordinator: DeletionCoordinator?
     let exercise: Exercise
     @Query(sort: \LoggedSet.completedAt) private var loggedSets: [LoggedSet]
     @State private var viewModel = ProgressViewModel()
     @State private var showingQuickLog = false
     @State private var setToEdit: LoggedSet?
     @State private var metricsRefreshTask: Task<Void, Never>?
-    @State private var persistenceAlert: PersistenceAlert?
-    @State private var showingPersistenceAlert = false
     @Namespace private var pickerNamespace
     @AppStorage("weightUnit") private var weightUnit: WeightUnit = .lbs
     @Environment(\.locale) private var locale
@@ -283,9 +304,12 @@ struct ExerciseProgressView: View {
                         .frame(maxWidth: .infinity, alignment: .leading)
                     statsCard(pr: metrics.personalRecord, totalVol: metrics.totalVolume)
                     timeRangePicker
-                    ExerciseProgressChartCard(chartPoints: metrics.chartPoints)
+                    ExerciseProgressChartCard(chartPoints: metrics.chartPoints, weightUnit: weightUnit)
                         .equatable()
-                    setHistoryCard(recentSets: metrics.recentSets, isEmpty: !metrics.hasFilteredSets)
+                    setHistoryCard(
+                        recentSets: metrics.recentSets.filter { deletionCoordinator?.isPending($0) != true },
+                        isEmpty: !metrics.hasFilteredSets
+                    )
                 }
             }
             .padding(.horizontal, 16)
@@ -333,16 +357,15 @@ struct ExerciseProgressView: View {
                 viewModel: viewModel,
                 latestSet: viewModel.exerciseMetrics.latestSet,
                 weightInput: WeightInput(unit: weightUnit, locale: locale)
-            )
+            ).deletionUndoToast(deletionCoordinator)
         }
         .sheet(item: $setToEdit) { set in
             EditLoggedSetSheet(
                 set: set,
                 viewModel: viewModel,
                 weightInput: WeightInput(unit: weightUnit, locale: locale)
-            )
+            ).deletionUndoToast(deletionCoordinator)
         }
-        .persistenceAlert(isPresented: $showingPersistenceAlert, alert: persistenceAlert)
         .onAppear { viewModel.refreshExerciseMetrics(with: loggedSets) }
         .onChange(of: scenePhase) { _, newPhase in
             if newPhase == .active {
@@ -351,6 +374,9 @@ struct ExerciseProgressView: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: ModelContext.didSave)) { _ in
             scheduleMetricsRefresh()
+        }
+        .onChange(of: deletionCoordinator?.pendingCount) { _, count in
+            if count == 0 { scheduleMetricsRefresh() }
         }
         .onDisappear {
             metricsRefreshTask?.cancel()
@@ -374,10 +400,7 @@ struct ExerciseProgressView: View {
     }
 
     private func deleteSet(_ set: LoggedSet) {
-        if case .failure(let error) = viewModel.deleteSet(set, context: context) {
-            persistenceAlert = PersistenceAlert(title: "Couldn't Delete Set", error: error)
-            showingPersistenceAlert = true
-        }
+        deletionCoordinator?.request(set)
     }
 
     // MARK: Cards
@@ -414,7 +437,7 @@ struct ExerciseProgressView: View {
                         Text(range.rawValue)
                             .font(.subheadline.bold())
                             .frame(maxWidth: .infinity)
-                            .padding(.vertical, 8)
+                            .frame(minHeight: 44)
                             .foregroundStyle(viewModel.timeRange == range ? Color.white : Color.secondary.opacity(0.7))
                             .background {
                                 if viewModel.timeRange == range {
@@ -439,7 +462,7 @@ struct ExerciseProgressView: View {
                     .foregroundStyle(.secondary)
 
                 Group {
-                if isEmpty {
+                if isEmpty || recentSets.isEmpty {
                     Text("No sets logged in this period.")
                         .font(.subheadline)
                         .foregroundStyle(.tertiary)
@@ -460,7 +483,7 @@ struct ExerciseProgressView: View {
                                 .font(.subheadline.bold())
                                 .foregroundStyle(.blue)
                         }
-                        .padding(.vertical, 4)
+                        .frame(minHeight: 44)
                         .contentShape(Rectangle())
                         .onTapGesture { setToEdit = set }
                         .contextMenu {
@@ -483,18 +506,37 @@ struct ExerciseProgressView: View {
                     }
                 }
                 }
+
+                NavigationLink {
+                    ExerciseHistoryView(exercise: exercise)
+                } label: {
+                    HStack {
+                        Text("View All History")
+                        Spacer()
+                        Image(systemName: "chevron.right")
+                    }
+                    .font(.subheadline.bold())
+                    .frame(minHeight: 44)
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(.blue)
             }
         }
     }
 }
 
-private struct ExerciseProgressChartCard: View, Equatable {
+struct ExerciseProgressChartCard: View, Equatable {
     let chartPoints: [ExerciseProgressChartPoint]
+    let weightUnit: WeightUnit
+
+    static func == (lhs: Self, rhs: Self) -> Bool {
+        lhs.chartPoints == rhs.chartPoints && lhs.weightUnit == rhs.weightUnit
+    }
 
     var body: some View {
         GlassCard {
             VStack(alignment: .leading, spacing: 12) {
-                Text("Max Weight Over Time")
+                Text("Max Weight Over Time (\(weightUnit.symbol))")
                     .font(.subheadline.bold())
                     .foregroundStyle(.secondary)
 
@@ -518,14 +560,14 @@ private struct ExerciseProgressChartCard: View, Equatable {
                         ForEach(chartPoints) { point in
                             LineMark(
                                 x: .value("Date", point.date),
-                                y: .value("Weight", point.weight)
+                                y: .value("Weight (\(weightUnit.symbol))", point.displayWeight(unit: weightUnit))
                             )
                             .foregroundStyle(Color.blue)
                             .interpolationMethod(.catmullRom)
 
                             AreaMark(
                                 x: .value("Date", point.date),
-                                y: .value("Weight", point.weight)
+                                y: .value("Weight (\(weightUnit.symbol))", point.displayWeight(unit: weightUnit))
                             )
                             .foregroundStyle(
                                 LinearGradient(
@@ -539,7 +581,7 @@ private struct ExerciseProgressChartCard: View, Equatable {
                             if chartPoints.count <= 60 {
                                 PointMark(
                                     x: .value("Date", point.date),
-                                    y: .value("Weight", point.weight)
+                                    y: .value("Weight (\(weightUnit.symbol))", point.displayWeight(unit: weightUnit))
                                 )
                                 .foregroundStyle(Color.blue)
                                 .symbolSize(30)
@@ -561,6 +603,8 @@ private struct ExerciseProgressChartCard: View, Equatable {
                             AxisValueLabel().foregroundStyle(.secondary)
                         }
                     }
+                    .chartYAxisLabel("Weight (\(weightUnit.symbol))")
+                    .accessibilityLabel("Maximum weight over time in \(weightUnit == .lbs ? "pounds" : "kilograms")")
                     .frame(height: 200)
                 }
             }

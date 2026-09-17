@@ -1,6 +1,7 @@
 import SwiftUI
 
 private struct UndoToastBanner: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     let message: String
     let onUndo: () -> Void
     let onDismiss: () -> Void
@@ -21,7 +22,7 @@ private struct UndoToastBanner: View {
                 Text("Undo")
                     .font(.subheadline.bold())
                     .padding(.horizontal, 14)
-                    .padding(.vertical, 8)
+                    .frame(minHeight: 44)
                     .background(.blue.opacity(0.2), in: Capsule())
             }
             .tint(.blue)
@@ -70,7 +71,7 @@ private struct UndoToastBanner: View {
                 if horizontalDistance >= 80 || downwardDistance >= 60 {
                     onDismiss()
                 } else {
-                    withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+                    withAnimation(reduceMotion ? nil : .spring(response: 0.3, dampingFraction: 0.8)) {
                         dragOffset = .zero
                     }
                 }
@@ -79,45 +80,65 @@ private struct UndoToastBanner: View {
 }
 
 private struct UndoToastModifier: ViewModifier {
-    @Binding var isPresented: Bool
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    let isPresented: Bool
     let message: String
+    let generation: UUID?
     let onUndo: () -> Void
-    @State private var isDismissed = false
+    let onDismiss: () -> Void
 
     func body(content: Content) -> some View {
         ZStack(alignment: .bottom) {
             content
-            if isPresented && !isDismissed {
+            if isPresented {
                 UndoToastBanner(
                     message: message,
                     onUndo: onUndo,
-                    onDismiss: dismiss
+                    onDismiss: onDismiss
                 )
+                .id(generation)
                 .transition(.move(edge: .bottom).combined(with: .opacity))
                 .sensoryFeedback(.impact, trigger: isPresented)
                 .zIndex(100)
             }
         }
-        .animation(.spring(response: 0.35, dampingFraction: 0.8), value: isPresented)
-        .animation(.spring(response: 0.35, dampingFraction: 0.8), value: isDismissed)
-        .onChange(of: isPresented) { _, presented in
-            if !presented {
-                isDismissed = false
-            }
-        }
-    }
-
-    private func dismiss() {
-        isDismissed = true
+        .animation(reduceMotion ? nil : .spring(response: 0.35, dampingFraction: 0.8), value: isPresented)
     }
 }
 
 extension View {
     func undoToast(
-        isPresented: Binding<Bool>,
+        isPresented: Bool,
         message: String,
-        onUndo: @escaping () -> Void
+        generation: UUID?,
+        onUndo: @escaping () -> Void,
+        onDismiss: @escaping () -> Void
     ) -> some View {
-        modifier(UndoToastModifier(isPresented: isPresented, message: message, onUndo: onUndo))
+        modifier(UndoToastModifier(
+            isPresented: isPresented,
+            message: message,
+            generation: generation,
+            onUndo: onUndo,
+            onDismiss: onDismiss
+        ))
+    }
+
+    func deletionUndoToast(_ coordinator: DeletionCoordinator) -> some View {
+        undoToast(
+            isPresented: coordinator.showsToast,
+            message: coordinator.toastMessage,
+            generation: coordinator.generation,
+            onUndo: { coordinator.undo() },
+            onDismiss: { coordinator.dismissToast() }
+        )
+    }
+
+    @ViewBuilder
+    func deletionUndoToast(_ coordinator: DeletionCoordinator?) -> some View {
+        if let coordinator {
+            deletionUndoToast(coordinator)
+        } else {
+            self
+        }
     }
 }

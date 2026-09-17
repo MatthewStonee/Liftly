@@ -15,6 +15,9 @@ final class WorkoutTemplateDetailViewModel {
         context: ModelContext
     ) -> Result<Void, PersistenceCommandError> {
         guard !workout.isDeleted else { return .failure(.unavailable) }
+        guard SiblingOrder.isCompleteOrder(orderedIDs, of: workout.plannedExercisesList.map(\.id)) else {
+            return .failure(.invalidInput)
+        }
         let orderLookup = Dictionary(uniqueKeysWithValues: orderedIDs.enumerated().map { index, id in
             (id, index)
         })
@@ -45,6 +48,7 @@ final class WorkoutTemplateDetailViewModel {
                   let insertionExercise = try insertionContext.existingModel(exercise) else {
                 throw PersistenceCommandError.unavailable
             }
+            SiblingOrder.normalize(insertionWorkout.plannedExercisesList)
             let planned = PlannedExercise(
                 exercise: insertionExercise,
                 sets: 3,
@@ -112,8 +116,10 @@ final class WorkoutTemplateDetailViewModel {
         guard !planned.isDeleted else { return .success(()) }
 
         return commandRunner.perform(in: context) { context in
+            let siblings = planned.workoutTemplate?.plannedExercisesList.filter { $0.id != planned.id } ?? []
             planned.workoutTemplate = nil
             context.delete(planned)
+            SiblingOrder.normalize(siblings)
         }
     }
 }
