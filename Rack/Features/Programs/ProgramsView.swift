@@ -122,8 +122,10 @@ struct ProgramsView: View {
                                     .onTapGesture {
                                         selectedProgram = program
                                     }
+                                    .accessibilityElement(children: .combine)
                                     .accessibilityLabel(program.name)
                                     .accessibilityAddTraits(.isButton)
+                                    .accessibilityIdentifier("program.row.\(program.name)")
                                     .padding(.horizontal, 16)
                                 }
                             }
@@ -209,8 +211,10 @@ struct ProgramsView: View {
         .onTapGesture {
             selectedProgram = program
         }
+        .accessibilityElement(children: .combine)
         .accessibilityLabel(program.name)
         .accessibilityAddTraits(.isButton)
+        .accessibilityIdentifier("program.row.\(program.name)")
         .padding(.horizontal, 16)
     }
 

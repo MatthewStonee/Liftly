@@ -5,6 +5,17 @@ import Combine
 
 // MARK: - Progress Tab
 
+/// Screens pushed onto the Progress tab's navigation stack.
+///
+/// Keep every push value-based and resolved by the stack root's `navigationDestination(for:)`.
+/// On iOS 27, a view-destination `NavigationLink` inside a screen pushed with
+/// `navigationDestination(item:)` got stuck in an update loop with the stack when its
+/// destination contained a `ScrollView`: opening History froze the app at 100% CPU.
+enum ProgressRoute: Hashable {
+    case exercise(Exercise)
+    case history(Exercise)
+}
+
 struct ProgressTabView: View {
     @Environment(\.modelContext) private var context
     @Environment(\.scenePhase) private var scenePhase
@@ -18,12 +29,12 @@ struct ProgressTabView: View {
     )
     private var activePrograms: [Program]
     @State private var viewModel = ProgressViewModel()
-    @State private var selectedExercise: Exercise?
+    @State private var path: [ProgressRoute] = []
     @State private var overviewRefreshTask: Task<Void, Never>?
     @AppStorage("weightUnit") private var weightUnit: WeightUnit = .lbs
 
     var body: some View {
-        NavigationStack {
+        NavigationStack(path: $path) {
             Group {
                 if viewModel.overview.programExercises.isEmpty {
                     emptyState
@@ -35,8 +46,13 @@ struct ProgressTabView: View {
             .background { backgroundGradient }
             .navigationTitle("Progress")
             .titleDisplayMode(.large)
-            .navigationDestination(item: $selectedExercise) { exercise in
-                ExerciseProgressView(exercise: exercise)
+            .navigationDestination(for: ProgressRoute.self) { route in
+                switch route {
+                case .exercise(let exercise):
+                    ExerciseProgressView(exercise: exercise)
+                case .history(let exercise):
+                    ExerciseHistoryView(exercise: exercise)
+                }
             }
             .onAppear { refreshOverview() }
             .onChange(of: activePrograms.first?.id) { _, _ in
@@ -155,11 +171,12 @@ struct ProgressTabView: View {
                         )
                         .contentShape(Rectangle())
                         .onTapGesture {
-                            selectedExercise = exercise
+                            path.append(.exercise(exercise))
                         }
                         .accessibilityElement()
                         .accessibilityLabel(exercise.name)
                         .accessibilityAddTraits(.isButton)
+                        .accessibilityIdentifier("progress.exercise.\(exercise.name)")
                     }
                 }
             }
@@ -507,9 +524,7 @@ struct ExerciseProgressView: View {
                 }
                 }
 
-                NavigationLink {
-                    ExerciseHistoryView(exercise: exercise)
-                } label: {
+                NavigationLink(value: ProgressRoute.history(exercise)) {
                     HStack {
                         Text("View All History")
                         Spacer()
@@ -520,6 +535,7 @@ struct ExerciseProgressView: View {
                 }
                 .buttonStyle(.plain)
                 .foregroundStyle(.blue)
+                .accessibilityIdentifier("progress.viewAllHistory")
             }
         }
     }
@@ -682,6 +698,7 @@ struct QuickLogSheet: View {
                             .font(.title2.bold())
                             .multilineTextAlignment(.center)
                             .padding(16)
+                            .accessibilityIdentifier("quickLog.weight")
                             .background(Color.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 14))
                             .overlay(
                                 RoundedRectangle(cornerRadius: 14)
@@ -867,6 +884,7 @@ struct EditLoggedSetSheet: View {
                             .font(.title2.bold())
                             .multilineTextAlignment(.center)
                             .padding(16)
+                            .accessibilityIdentifier("editSet.weight")
                             .background(Color.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 14))
                             .overlay(
                                 RoundedRectangle(cornerRadius: 14)

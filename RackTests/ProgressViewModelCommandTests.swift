@@ -72,6 +72,91 @@ struct ProgressViewModelCommandTests {
         #expect(!logged.isPersonalRecord)
     }
 
+    @Test func invalidLogInputsNeverCreateOrSaveASet() throws {
+        let exercise = try Fixtures.savedExercise(in: context)
+        let record = try savedSet(exercise, reps: 5, weight: 100, daysAgo: 1, isRecord: true)
+        let invalidInputs: [(Int, Double)] = [
+            (0, 100), (-1, 100), (5, -1), (5, .nan),
+            (5, .infinity), (5, -.infinity)
+        ]
+
+        for (reps, weight) in invalidInputs {
+            let result = viewModel.logSet(
+                for: exercise, reps: reps, weight: weight, completedAt: .now, context: context
+            )
+            #expect(result.failure == .invalidInput)
+            #expect(saves.saveAttempts == 0)
+            #expect(!context.hasChanges)
+            #expect(try TestStore.savedModels(LoggedSet.self, in: container).map(\.id) == [record.id])
+            #expect(record.isPersonalRecord)
+        }
+    }
+
+    @Test func invalidEditInputsLeaveValuesAndRecordsUntouched() throws {
+        let exercise = try Fixtures.savedExercise(in: context)
+        let record = try savedSet(exercise, reps: 5, weight: 100, daysAgo: 1, isRecord: true)
+        let invalidInputs: [(Int, Double)] = [
+            (0, 90), (-1, 90), (5, -1), (5, .nan),
+            (5, .infinity), (5, -.infinity)
+        ]
+
+        for (reps, weight) in invalidInputs {
+            let result = viewModel.updateSet(
+                record, reps: reps, weight: weight,
+                completedAt: record.completedAt.addingTimeInterval(10), context: context
+            )
+            #expect(result.failure == .invalidInput)
+            #expect(saves.saveAttempts == 0)
+            #expect(!context.hasChanges)
+            #expect(record.reps == 5)
+            #expect(record.weight == 100)
+            #expect(record.isPersonalRecord)
+            #expect(try savedRecordIDs() == [record.id])
+        }
+    }
+
+    @Test func changeNotificationsRequireSuccessfulCommits() throws {
+        let exercise = try Fixtures.savedExercise(in: context)
+        let exerciseID = exercise.id
+        var events: [Set<UUID>] = []
+        let token = NotificationCenter.default.addObserver(
+            forName: LoggedSetChange.didCommit, object: nil, queue: nil
+        ) { notification in
+            if let ids = notification.userInfo?[LoggedSetChange.exerciseIDsKey] as? Set<UUID>,
+               ids.contains(exerciseID) {
+                events.append(ids)
+            }
+        }
+        defer { NotificationCenter.default.removeObserver(token) }
+
+        #expect(viewModel.logSet(for: exercise, reps: 0, weight: 100,
+                                 completedAt: .now, context: context).failure == .invalidInput)
+        saves.isFailing = true
+        #expect(viewModel.logSet(for: exercise, reps: 5, weight: 100,
+                                 completedAt: .now, context: context).failure != nil)
+        #expect(events.isEmpty)
+
+        saves.isFailing = false
+        let set = try viewModel.logSet(for: exercise, reps: 5, weight: 100,
+                                       completedAt: .now, context: context).get()
+        #expect(events.count == 1)
+        saves.isFailing = true
+        #expect(viewModel.updateSet(set, reps: 5, weight: 110,
+                                    completedAt: set.completedAt, context: context).failure != nil)
+        #expect(events.count == 1)
+        saves.isFailing = false
+        #expect(viewModel.updateSet(set, reps: 5, weight: 110,
+                                    completedAt: set.completedAt, context: context).failure == nil)
+        #expect(events.count == 2)
+        let savesBeforeNoOp = saves.saveAttempts
+        #expect(viewModel.updateSet(set, reps: 5, weight: 110,
+                                    completedAt: set.completedAt, context: context).failure == nil)
+        #expect(saves.saveAttempts == savesBeforeNoOp)
+        #expect(events.count == 2)
+        #expect(viewModel.deleteSet(set, context: context).failure == nil)
+        #expect(events.count == 3)
+    }
+
     @Test func failedLogLeavesNoSetAndRetryLogsOnce() throws {
         let exercise = try Fixtures.savedExercise(in: context)
         let previous = try savedSet(exercise, reps: 5, weight: 100, daysAgo: 2, isRecord: true)
