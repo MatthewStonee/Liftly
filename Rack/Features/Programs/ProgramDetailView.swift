@@ -71,6 +71,7 @@ struct ProgramDetailView: View {
                                 .accessibilityElement(children: .contain)
                                 .accessibilityLabel(workout.name)
                                 .accessibilityAddTraits(.isButton)
+                                .accessibilityIdentifier("workout.row.\(workout.name)")
                             }
                         }
 
@@ -386,6 +387,7 @@ struct WorkoutTemplateRow: View {
 
             if isReorderMode {
                 dragHandle
+                    .accessibilityIdentifier("workout.drag.\(workout.name)")
             }
         }
         .padding(20)

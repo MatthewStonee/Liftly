@@ -41,8 +41,6 @@ private struct LoadedAppView: View {
     @Environment(\.scenePhase) private var scenePhase
     @State private var alertCenter: PersistenceAlertCenter
     @State private var deletionCoordinator: DeletionCoordinator
-    @State private var presentedAlert: PersistenceAlert?
-    @State private var showingPersistenceAlert = false
     @State private var showingSyncNotice: Bool
 
     init(container: ModelContainer, isCloudSyncUnavailable: Bool) {
@@ -70,19 +68,13 @@ private struct LoadedAppView: View {
                     .transition(.move(edge: .top).combined(with: .opacity))
                 }
             }
-            .persistenceAlert(isPresented: $showingPersistenceAlert, alert: presentedAlert)
-            .onChange(of: alertCenter.currentAlert?.id, initial: true) { _, _ in
-                presentNextAlertIfNeeded()
-            }
-            .onChange(of: showingPersistenceAlert) { _, isShowing in
-                guard !isShowing, let presentedAlert else { return }
-                self.presentedAlert = nil
-                alertCenter.dismiss(presentedAlert)
-            }
             .onChange(of: scenePhase) { _, phase in
                 deletionCoordinator.setActive(phase == .active)
             }
             .task(priority: .utility) {
+                #if DEBUG
+                guard DebugUITestFixture.current == nil else { return }
+                #endif
                 await AppDataStore.performStartupMaintenance(container: container)
             }
             .task {
@@ -90,12 +82,6 @@ private struct LoadedAppView: View {
                 try? await Task.sleep(for: .seconds(8))
                 hideSyncNotice()
             }
-    }
-
-    private func presentNextAlertIfNeeded() {
-        guard !showingPersistenceAlert, let nextAlert = alertCenter.currentAlert else { return }
-        presentedAlert = nextAlert
-        showingPersistenceAlert = true
     }
 
     private func hideSyncNotice() {

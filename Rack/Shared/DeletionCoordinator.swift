@@ -9,7 +9,7 @@ final class DeletionCoordinator {
         case program(UUID)
         case workout(UUID, programID: UUID?)
         case planned(UUID, workoutID: UUID?, programID: UUID?)
-        case loggedSet(UUID)
+        case loggedSet(UUID, exerciseID: UUID?)
 
         enum Key: Hashable {
             case program(UUID), workout(UUID), planned(UUID), loggedSet(UUID)
@@ -20,7 +20,7 @@ final class DeletionCoordinator {
             case .program(let id): return .program(id)
             case .workout(let id, _): return .workout(id)
             case .planned(let id, _, _): return .planned(id)
-            case .loggedSet(let id): return .loggedSet(id)
+            case .loggedSet(let id, _): return .loggedSet(id)
             }
         }
     }
@@ -31,26 +31,34 @@ final class DeletionCoordinator {
     private(set) var isPaused = false
 
     @ObservationIgnored private let context: ModelContext
-    @ObservationIgnored private let alertCenter: PersistenceAlertCenter
+    @ObservationIgnored let alertCenter: PersistenceAlertCenter
     @ObservationIgnored private let commandRunner: PersistenceCommandRunner
     @ObservationIgnored private let now: () -> Date
     @ObservationIgnored private let sleep: @Sendable (Duration) async throws -> Void
+    @ObservationIgnored private let onFetch: (FetchKind) -> Void
     @ObservationIgnored private var timer: Task<Void, Never>?
     @ObservationIgnored private var deadline: Date?
     @ObservationIgnored private var remaining: TimeInterval = 4
+
+    enum FetchKind: Equatable {
+        case requestedPrograms, requestedWorkouts, requestedPlanned, requestedLoggedSets
+        case workoutSiblings, plannedSiblings
+    }
 
     init(
         context: ModelContext,
         alertCenter: PersistenceAlertCenter,
         commandRunner: PersistenceCommandRunner = PersistenceCommandRunner(),
         now: @escaping () -> Date = Date.init,
-        sleep: @escaping @Sendable (Duration) async throws -> Void = { try await Task.sleep(for: $0) }
+        sleep: @escaping @Sendable (Duration) async throws -> Void = { try await Task.sleep(for: $0) },
+        onFetch: @escaping (FetchKind) -> Void = { _ in }
     ) {
         self.context = context
         self.alertCenter = alertCenter
         self.commandRunner = commandRunner
         self.now = now
         self.sleep = sleep
+        self.onFetch = onFetch
     }
 
     var pendingCount: Int { pending.count }
@@ -78,7 +86,7 @@ final class DeletionCoordinator {
 
     func request(_ set: LoggedSet) {
         guard !set.isDeleted else { return }
-        enqueue(.loggedSet(set.id))
+        enqueue(.loggedSet(set.id, exerciseID: set.exercise?.id))
     }
 
     func isPending(_ program: Program) -> Bool {
@@ -107,7 +115,14 @@ final class DeletionCoordinator {
     }
 
     func isPending(_ set: LoggedSet) -> Bool {
-        pending.contains(.loggedSet(set.id))
+        pending.contains { $0.key == .loggedSet(set.id) }
+    }
+
+    func pendingLoggedSetIDs(for exerciseID: UUID) -> Set<UUID> {
+        Set(pending.compactMap { identity in
+            if case .loggedSet(let id, let ownerID) = identity, ownerID == exerciseID { return id }
+            return nil
+        })
     }
 
     func hasPendingWorkouts(in program: Program) -> Bool {
@@ -167,10 +182,13 @@ final class DeletionCoordinator {
         guard !isPaused, generation == expected, !pending.isEmpty else { return }
         let batch = pending
         let result = commandRunner.perform(in: context) { context in
-            try Self.commit(batch, in: context)
+            try Self.commit(batch, in: context, onFetch: onFetch)
         }
         undo()
-        if case .failure(let error) = result {
+        switch result {
+        case .success(let exerciseIDs):
+            LoggedSetChange.publish(exerciseIDs: exerciseIDs)
+        case .failure(let error):
             alertCenter.report(PersistenceAlert(title: "Couldn't Delete Items", error: error))
         }
     }
@@ -230,40 +248,92 @@ final class DeletionCoordinator {
         }
     }
 
-    private static func commit(_ batch: [Identity], in context: ModelContext) throws {
+    private static func commit(
+        _ batch: [Identity],
+        in context: ModelContext,
+        onFetch: (FetchKind) -> Void
+    ) throws -> Set<UUID> {
         let programIDs = Set(batch.compactMap { if case .program(let id) = $0 { return id }; return nil })
         let workoutIDs = Set(batch.compactMap { if case .workout(let id, _) = $0 { return id }; return nil })
         let plannedIDs = Set(batch.compactMap { if case .planned(let id, _, _) = $0 { return id }; return nil })
-        let setIDs = Set(batch.compactMap { if case .loggedSet(let id) = $0 { return id }; return nil })
+        let setIDs = Set(batch.compactMap { if case .loggedSet(let id, _) = $0 { return id }; return nil })
 
-        let programs = try context.fetch(FetchDescriptor<Program>())
-        let workouts = try context.fetch(FetchDescriptor<WorkoutTemplate>())
-        let planned = try context.fetch(FetchDescriptor<PlannedExercise>())
-        let loggedSets = try context.fetch(FetchDescriptor<LoggedSet>())
+        var programs: [Program] = []
+        if !programIDs.isEmpty {
+            let ids = Array(programIDs)
+            onFetch(.requestedPrograms)
+            programs = try context.fetch(FetchDescriptor<Program>(
+                predicate: #Predicate<Program> { ids.contains($0.id) }
+            ))
+        }
+        var workouts: [WorkoutTemplate] = []
+        if !workoutIDs.isEmpty {
+            let ids = Array(workoutIDs)
+            onFetch(.requestedWorkouts)
+            workouts = try context.fetch(FetchDescriptor<WorkoutTemplate>(
+                predicate: #Predicate<WorkoutTemplate> { ids.contains($0.id) }
+            ))
+        }
+        var planned: [PlannedExercise] = []
+        if !plannedIDs.isEmpty {
+            let ids = Array(plannedIDs)
+            onFetch(.requestedPlanned)
+            planned = try context.fetch(FetchDescriptor<PlannedExercise>(
+                predicate: #Predicate<PlannedExercise> { ids.contains($0.id) }
+            ))
+        }
+        var loggedSets: [LoggedSet] = []
+        if !setIDs.isEmpty {
+            let ids = Array(setIDs)
+            onFetch(.requestedLoggedSets)
+            loggedSets = try context.fetch(FetchDescriptor<LoggedSet>(
+                predicate: #Predicate<LoggedSet> { ids.contains($0.id) }
+            ))
+        }
 
-        let deletedWorkouts = workouts.filter { workoutIDs.contains($0.id) && !programIDs.contains($0.program?.id ?? UUID()) }
-        let deletedPlanned = planned.filter {
-            plannedIDs.contains($0.id)
-                && !workoutIDs.contains($0.workoutTemplate?.id ?? UUID())
-                && !programIDs.contains($0.workoutTemplate?.program?.id ?? UUID())
+        let deletedProgramIDs = Set(programs.map(\.id))
+        let deletedWorkouts = workouts.filter { workout in
+            !(workout.program.map { deletedProgramIDs.contains($0.id) } ?? false)
+        }
+        let deletedWorkoutIDs = Set(deletedWorkouts.map(\.id))
+        let deletedPlanned = planned.filter { item in
+            guard let workout = item.workoutTemplate else { return true }
+            return !deletedWorkoutIDs.contains(workout.id)
+                && !(workout.program.map { deletedProgramIDs.contains($0.id) } ?? false)
         }
         let affectedPrograms = Set(deletedWorkouts.compactMap { $0.program?.id })
         let affectedWorkouts = Set(deletedPlanned.compactMap { $0.workoutTemplate?.id })
 
-        try ProgressViewModel.deleteSetsInCommand(loggedSets.filter { setIDs.contains($0.id) }, context: context)
+        var workoutSiblings: [WorkoutTemplate] = []
+        for programID in affectedPrograms where !deletedProgramIDs.contains(programID) {
+            onFetch(.workoutSiblings)
+            workoutSiblings += try context.fetch(FetchDescriptor<WorkoutTemplate>(
+                predicate: #Predicate<WorkoutTemplate> { $0.program?.id == programID }
+            ))
+        }
+        var plannedSiblings: [PlannedExercise] = []
+        for workoutID in affectedWorkouts where !deletedWorkoutIDs.contains(workoutID) {
+            onFetch(.plannedSiblings)
+            plannedSiblings += try context.fetch(FetchDescriptor<PlannedExercise>(
+                predicate: #Predicate<PlannedExercise> { $0.workoutTemplate?.id == workoutID }
+            ))
+        }
+
+        let changedExerciseIDs = try ProgressViewModel.deleteSetsInCommand(loggedSets, context: context)
         for item in deletedPlanned { item.workoutTemplate = nil; context.delete(item) }
         for item in deletedWorkouts { item.program = nil; context.delete(item) }
-        for item in programs where programIDs.contains(item.id) { context.delete(item) }
+        for item in programs { context.delete(item) }
 
         for programID in affectedPrograms {
-            SiblingOrder.normalize(workouts.filter {
-                $0.program?.id == programID && !workoutIDs.contains($0.id)
+            SiblingOrder.normalize(workoutSiblings.filter {
+                $0.program?.id == programID && !deletedWorkoutIDs.contains($0.id)
             })
         }
         for workoutID in affectedWorkouts {
-            SiblingOrder.normalize(planned.filter {
+            SiblingOrder.normalize(plannedSiblings.filter {
                 $0.workoutTemplate?.id == workoutID && !plannedIDs.contains($0.id)
             })
         }
+        return changedExerciseIDs
     }
 }

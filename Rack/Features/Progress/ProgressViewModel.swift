@@ -2,6 +2,24 @@ import SwiftUI
 import SwiftData
 import OSLog
 
+enum LoggedSetChange {
+    static let didCommit = Notification.Name("LiftlyLoggedSetsDidCommit")
+    static let exerciseIDsKey = "exerciseIDs"
+
+    static func publish(exerciseIDs: Set<UUID>) {
+        guard !exerciseIDs.isEmpty else { return }
+        NotificationCenter.default.post(
+            name: didCommit,
+            object: nil,
+            userInfo: [exerciseIDsKey: exerciseIDs]
+        )
+    }
+
+    static func affects(_ exerciseID: UUID, notification: Notification) -> Bool {
+        (notification.userInfo?[exerciseIDsKey] as? Set<UUID>)?.contains(exerciseID) == true
+    }
+}
+
 struct ExerciseProgressSummary: Sendable {
     var prWeight: Double = 0
     var setCount: Int = 0
@@ -41,19 +59,9 @@ final class ProgressViewModel {
     var exerciseMetrics = ExerciseProgressMetrics()
     @ObservationIgnored private var allSetsAscending: [LoggedSet] = []
     @ObservationIgnored private let commandRunner: PersistenceCommandRunner
-    @ObservationIgnored private let historyLoader: (Exercise, ModelContext) throws -> [LoggedSet]
 
-    init(
-        commandRunner: PersistenceCommandRunner = PersistenceCommandRunner(),
-        historyLoader: @escaping (Exercise, ModelContext) throws -> [LoggedSet] = { exercise, context in
-            let exerciseID = exercise.id
-            return try context.fetch(FetchDescriptor<LoggedSet>(
-                predicate: #Predicate<LoggedSet> { $0.exercise?.id == exerciseID }
-            ))
-        }
-    ) {
+    init(commandRunner: PersistenceCommandRunner = PersistenceCommandRunner()) {
         self.commandRunner = commandRunner
-        self.historyLoader = historyLoader
     }
 
     enum TimeRange: String, CaseIterable {
@@ -200,22 +208,6 @@ final class ProgressViewModel {
         }
     }
 
-    func fetchHistory(for exercise: Exercise, context: ModelContext) -> Result<[LoggedSet], PersistenceCommandError> {
-        do {
-            let sets = try historyLoader(exercise, context)
-            return .success(Self.historyNewestFirst(sets))
-        } catch {
-            Self.logger.error("Failed to fetch exercise history: \(String(describing: error), privacy: .public)")
-            return .failure(.failed(String(describing: error)))
-        }
-    }
-
-    static func history(_ sets: [LoggedSet], in range: TimeRange, now: Date = .now) -> [LoggedSet] {
-        guard let days = range.days else { return sets }
-        let cutoff = Calendar.current.date(byAdding: .day, value: -days, to: now) ?? now
-        return sets.filter { $0.completedAt >= cutoff }
-    }
-
     func refreshExerciseMetrics(for exercise: Exercise, context: ModelContext) {
         let exerciseID = exercise.id
         let descriptor = FetchDescriptor<LoggedSet>(
@@ -248,6 +240,7 @@ final class ProgressViewModel {
         completedAt: Date,
         context: ModelContext
     ) -> Result<LoggedSet, PersistenceCommandError> {
+        guard Self.isValidSetInput(reps: reps, weight: weight) else { return .failure(.invalidInput) }
         guard !exercise.isDeleted else { return .failure(.unavailable) }
 
         let result = commandRunner.performInsert(in: context) { context in
@@ -264,6 +257,7 @@ final class ProgressViewModel {
             return set
         }
         refreshExerciseMetrics(for: exercise, context: context)
+        if case .success = result { LoggedSetChange.publish(exerciseIDs: [exercise.id]) }
         return result
     }
 
@@ -276,6 +270,7 @@ final class ProgressViewModel {
         completedAt: Date,
         context: ModelContext
     ) -> Result<Void, PersistenceCommandError> {
+        guard Self.isValidSetInput(reps: reps, weight: weight) else { return .failure(.invalidInput) }
         guard !set.isDeleted, let exercise = set.exercise else { return .failure(.unavailable) }
 
         let result = commandRunner.perform(in: context) { context in
@@ -300,9 +295,11 @@ final class ProgressViewModel {
                 set.isPersonalRecord = false
             }
             Self.recalculatePersonalRecords(in: exerciseSets, repCounts: [originalReps, reps])
+            return context.hasChanges
         }
         refreshExerciseMetrics(for: exercise, context: context)
-        return result
+        if case .success(true) = result { LoggedSetChange.publish(exerciseIDs: [exercise.id]) }
+        return result.map { _ in }
     }
 
     /// Deletes a set and promotes the next personal record for its rep count in the same save.
@@ -311,30 +308,43 @@ final class ProgressViewModel {
         let exercise = set.exercise
 
         let result = commandRunner.perform(in: context) { context in
-            try Self.deleteSetsInCommand([set], context: context)
+            _ = try Self.deleteSetsInCommand([set], context: context)
         }
         if let exercise {
             refreshExerciseMetrics(for: exercise, context: context)
+            if case .success = result { LoggedSetChange.publish(exerciseIDs: [exercise.id]) }
         }
         return result
     }
 
     /// Used by the app deletion batch so all requested sets and their PR flags save together.
-    static func deleteSetsInCommand(_ sets: [LoggedSet], context: ModelContext) throws {
+    @discardableResult
+    static func deleteSetsInCommand(_ sets: [LoggedSet], context: ModelContext) throws -> Set<UUID> {
         let liveSets = sets.filter { !$0.isDeleted }
         let removedIDs = Set(liveSets.map(\.id))
-        let grouped = Dictionary(grouping: liveSets.compactMap { set -> (Exercise, Int)? in
-            set.exercise.map { ($0, set.reps) }
-        }, by: { $0.0.id })
+        let grouped = Dictionary(grouping: liveSets.compactMap { set -> (UUID, Int)? in
+            set.exercise.map { ($0.id, set.reps) }
+        }, by: { $0.0 })
 
         for set in liveSets {
             context.delete(set)
         }
-        for entries in grouped.values {
-            guard let exercise = entries.first?.0 else { continue }
-            let remaining = try loggedSets(for: exercise, in: context).filter { !removedIDs.contains($0.id) }
-            recalculatePersonalRecords(in: remaining, repCounts: entries.map { $0.1 })
+        for (exerciseID, entries) in grouped {
+            for reps in Set(entries.map { $0.1 }) {
+                let descriptor = FetchDescriptor<LoggedSet>(
+                    predicate: #Predicate<LoggedSet> { set in
+                        set.exercise?.id == exerciseID && set.reps == reps
+                    }
+                )
+                let remaining = try context.fetch(descriptor).filter { !removedIDs.contains($0.id) }
+                recalculatePersonalRecords(in: remaining, repCounts: [reps])
+            }
         }
+        return Set(grouped.keys)
+    }
+
+    private static func isValidSetInput(reps: Int, weight: Double) -> Bool {
+        reps > 0 && weight.isFinite && weight >= 0
     }
 
     private static func loggedSets(for exercise: Exercise, in context: ModelContext) throws -> [LoggedSet] {

@@ -26,6 +26,7 @@ private struct UndoToastBanner: View {
                     .background(.blue.opacity(0.2), in: Capsule())
             }
             .tint(.blue)
+            .accessibilityIdentifier("deletion.undo")
         }
         .padding(.horizontal, 20)
         .padding(.vertical, 14)
@@ -123,6 +124,9 @@ extension View {
         ))
     }
 
+    /// Shows the Undo toast for pending deletions and presents deletion failures
+    /// above this view. Apply it to the app root and to every sheet's root view, so
+    /// a failure appears over the frontmost sheet instead of dismissing it.
     func deletionUndoToast(_ coordinator: DeletionCoordinator) -> some View {
         undoToast(
             isPresented: coordinator.showsToast,
@@ -131,6 +135,7 @@ extension View {
             onUndo: { coordinator.undo() },
             onDismiss: { coordinator.dismissToast() }
         )
+        .persistenceAlertHost(coordinator.alertCenter)
     }
 
     @ViewBuilder
