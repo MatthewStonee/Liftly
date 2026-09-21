@@ -25,6 +25,7 @@ Check `Rack/Shared/` and nearby feature components before creating new UI compon
 ### Patterns to reuse
 - **Undo-deletion**: schedule deletion via `Task` with ~4s delay, cancelable from `UndoToast`. See `ProgramsView` and `ProgramDetailView`. Destructive actions should follow this pattern, not delete immediately. Every sheet's root view must apply `.deletionUndoToast(deletionCoordinator)`, which shows the toast and presents deletion failures above that sheet.
 - **History paging**: `ExerciseHistoryViewModel` owns the range, the loaded window, every refresh and the scroll anchor for `ExerciseHistoryView` — views never fetch sets themselves. All refresh paths go through its `fetchWindow`, which keeps the user's place when the anchored row disappears and returns them to it on Undo; `appear(exerciseID:context:excluding:)` loads on first appearance and refreshes on re-entry.
+- **Metrics refresh**: set commands (`ProgressViewModel.logSet` / `updateSet` / `deleteSet`) only save and publish `LoggedSetChange`; they never recompute metrics. The screen that shows metrics refreshes them itself: `ExerciseProgressView` does so on entry, on `LoggedSetChange` for its exercise (immediately, so Quick Log prefills the latest set), and on foreground return, and skips the work while History covers it.
 - **Haptics**: `.sensoryFeedback(.impact, ...)` for drag/toast; `UINotificationFeedbackGenerator().notificationOccurred(.success)` for successful logs. Match the surrounding code when adding new interactions.
 
 ## Gotchas

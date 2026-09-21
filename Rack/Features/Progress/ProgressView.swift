@@ -289,25 +289,12 @@ struct ExerciseProgressView: View {
     @Environment(\.scenePhase) private var scenePhase
     @Environment(DeletionCoordinator.self) private var deletionCoordinator: DeletionCoordinator?
     let exercise: Exercise
-    @Query(sort: \LoggedSet.completedAt) private var loggedSets: [LoggedSet]
     @State private var viewModel = ProgressViewModel()
     @State private var showingQuickLog = false
     @State private var setToEdit: LoggedSet?
-    @State private var metricsRefreshTask: Task<Void, Never>?
     @Namespace private var pickerNamespace
     @AppStorage("weightUnit") private var weightUnit: WeightUnit = .lbs
     @Environment(\.locale) private var locale
-
-    init(exercise: Exercise) {
-        self.exercise = exercise
-        let exerciseID = exercise.id
-        _loggedSets = Query(
-            filter: #Predicate<LoggedSet> { set in
-                set.exercise?.id == exerciseID
-            },
-            sort: \LoggedSet.completedAt
-        )
-    }
 
     var body: some View {
         let metrics = viewModel.exerciseMetrics
@@ -383,36 +370,19 @@ struct ExerciseProgressView: View {
                 weightInput: WeightInput(unit: weightUnit, locale: locale)
             ).deletionUndoToast(deletionCoordinator)
         }
-        .onAppear { viewModel.refreshExerciseMetrics(with: loggedSets) }
-        .onChange(of: scenePhase) { _, newPhase in
-            if newPhase == .active {
-                scheduleMetricsRefresh()
-            }
-        }
-        .onReceive(NotificationCenter.default.publisher(for: ModelContext.didSave)) { _ in
-            scheduleMetricsRefresh()
-        }
-        .onChange(of: deletionCoordinator?.pendingCount) { _, count in
-            if count == 0 { scheduleMetricsRefresh() }
+        .onAppear {
+            viewModel.exerciseDetailAppeared(exercise, context: context)
         }
         .onDisappear {
-            metricsRefreshTask?.cancel()
+            viewModel.exerciseDetailDisappeared()
         }
-    }
-
-    private func scheduleMetricsRefresh() {
-        metricsRefreshTask?.cancel()
-        let selectedExercise = exercise
-        let modelContext = context
-        let currentViewModel = viewModel
-
-        metricsRefreshTask = Task { @MainActor in
-            try? await Task.sleep(for: .milliseconds(200))
-            guard !Task.isCancelled else { return }
-            currentViewModel.refreshExerciseMetrics(
-                for: selectedExercise,
-                context: modelContext
-            )
+        .onReceive(NotificationCenter.default.publisher(for: LoggedSetChange.didCommit)) { notification in
+            viewModel.handleCommittedChange(notification, exercise: exercise, context: context)
+        }
+        .onChange(of: scenePhase) { _, newPhase in
+            if newPhase == .active {
+                viewModel.refreshVisibleExerciseMetrics(for: exercise, context: context)
+            }
         }
     }
 

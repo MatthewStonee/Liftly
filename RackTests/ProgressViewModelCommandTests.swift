@@ -1,3 +1,4 @@
+import Combine
 import Foundation
 import SwiftData
 import Testing
@@ -29,6 +30,7 @@ struct ProgressViewModelCommandTests {
         #expect(logged.isPersonalRecord)
         #expect(!previous.isPersonalRecord)
         #expect(!context.hasChanges)
+        viewModel.refreshExerciseMetrics(for: exercise, context: context)
         #expect(viewModel.exerciseMetrics.personalRecord?.id == logged.id)
         #expect(try savedRecordIDs() == [logged.id])
     }
@@ -168,6 +170,7 @@ struct ProgressViewModelCommandTests {
         #expect(!context.hasChanges)
         #expect(try context.fetch(FetchDescriptor<LoggedSet>()).map(\.id) == [previous.id])
         #expect(previous.isPersonalRecord)
+        viewModel.refreshExerciseMetrics(for: exercise, context: context)
         #expect(viewModel.exerciseMetrics.personalRecord?.id == previous.id)
         #expect(viewModel.exerciseMetrics.latestSet?.id == previous.id)
 
@@ -179,6 +182,7 @@ struct ProgressViewModelCommandTests {
         #expect(retried.modelContext === context)
         #expect(!previous.isPersonalRecord)
         #expect(Set(exercise.loggedSetsList.map(\.id)) == [previous.id, retried.id])
+        viewModel.refreshExerciseMetrics(for: exercise, context: context)
         #expect(viewModel.exerciseMetrics.personalRecord?.id == retried.id)
     }
 
@@ -207,6 +211,7 @@ struct ProgressViewModelCommandTests {
         #expect(other.weight == 90)
         #expect(record.isPersonalRecord)
         #expect(!other.isPersonalRecord)
+        viewModel.refreshExerciseMetrics(for: exercise, context: context)
         #expect(viewModel.exerciseMetrics.personalRecord?.id == record.id)
 
         saves.isFailing = false
@@ -252,6 +257,7 @@ struct ProgressViewModelCommandTests {
         #expect(record.isPersonalRecord)
         #expect(!runnerUp.isPersonalRecord)
         #expect(try context.fetch(FetchDescriptor<LoggedSet>()).count == 2)
+        viewModel.refreshExerciseMetrics(for: exercise, context: context)
         #expect(viewModel.exerciseMetrics.personalRecord?.id == record.id)
 
         saves.isFailing = false
@@ -259,7 +265,80 @@ struct ProgressViewModelCommandTests {
         #expect(runnerUp.isPersonalRecord)
         #expect(try TestStore.savedModels(LoggedSet.self, in: container).map(\.id) == [runnerUp.id])
         #expect(try savedRecordIDs() == [runnerUp.id])
+        viewModel.refreshExerciseMetrics(for: exercise, context: context)
         #expect(viewModel.exerciseMetrics.personalRecord?.id == runnerUp.id)
+    }
+
+    // MARK: Metrics
+
+    @Test func setCommandsLeaveMetricsToTheScreen() throws {
+        let exercise = try Fixtures.savedExercise(in: context)
+        let metricsLoads = MetricsLoadCounter()
+        let model = ProgressViewModel(commandRunner: saves.runner, metricsLoader: metricsLoads.loader)
+
+        let set = try model.logSet(for: exercise, reps: 5, weight: 100, completedAt: .now, context: context).get()
+        #expect(model.updateSet(set, reps: 5, weight: 110, completedAt: set.completedAt, context: context).failure == nil)
+        saves.isFailing = true
+        #expect(model.logSet(for: exercise, reps: 5, weight: 120, completedAt: .now, context: context).failure != nil)
+        #expect(model.updateSet(set, reps: 6, weight: 110, completedAt: set.completedAt, context: context).failure != nil)
+        #expect(model.deleteSet(set, context: context).failure != nil)
+        saves.isFailing = false
+        #expect(model.deleteSet(set, context: context).failure == nil)
+        #expect(metricsLoads.count == 0)
+        #expect(model.exerciseMetrics.latestSet == nil)
+
+        model.refreshExerciseMetrics(for: exercise, context: context)
+        #expect(metricsLoads.count == 1)
+    }
+
+    @Test func detailScreenRefreshesOnlyWhileShowing() throws {
+        let exercise = try Fixtures.savedExercise(in: context)
+        let other = try Fixtures.savedExercise(in: context, name: "Squat")
+        let metricsLoads = MetricsLoadCounter()
+        let screen = ProgressViewModel(commandRunner: saves.runner, metricsLoader: metricsLoads.loader)
+        var committed: [Notification] = []
+        let subscription = NotificationCenter.default.publisher(for: LoggedSetChange.didCommit)
+            .sink { committed.append($0) }
+        defer { subscription.cancel() }
+        /// Hands saved changes to the screen, as its `onReceive` does.
+        func deliverChanges() {
+            for notification in committed {
+                screen.handleCommittedChange(notification, exercise: exercise, context: context)
+            }
+            committed.removeAll()
+        }
+
+        screen.exerciseDetailAppeared(exercise, context: context)
+        #expect(metricsLoads.count == 1)
+
+        // Quick Log: the screen refreshes as soon as the set saves, so reopening it prefills this set.
+        let logged = try screen.logSet(for: exercise, reps: 5, weight: 100, completedAt: .now, context: context).get()
+        deliverChanges()
+        #expect(metricsLoads.count == 2)
+        #expect(screen.exerciseMetrics.latestSet?.id == logged.id)
+
+        _ = try ProgressViewModel().logSet(for: other, reps: 5, weight: 200, completedAt: .now, context: context).get()
+        deliverChanges()
+        #expect(metricsLoads.count == 2)
+
+        // While History covers the screen, its edits and foreground returns wait.
+        screen.exerciseDetailDisappeared()
+        #expect(ProgressViewModel().updateSet(
+            logged, reps: 5, weight: 120, completedAt: logged.completedAt, context: context
+        ).failure == nil)
+        deliverChanges()
+        screen.refreshVisibleExerciseMetrics(for: exercise, context: context)
+        #expect(metricsLoads.count == 2)
+
+        // Returning from History refreshes once, with the edit in the chart and totals.
+        screen.exerciseDetailAppeared(exercise, context: context)
+        #expect(metricsLoads.count == 3)
+        #expect(screen.exerciseMetrics.personalRecord?.weight == 120)
+        #expect(screen.exerciseMetrics.totalVolume == 600)
+        #expect(screen.exerciseMetrics.chartPoints.map(\.weight) == [120])
+
+        screen.refreshVisibleExerciseMetrics(for: exercise, context: context) // Back in the foreground.
+        #expect(metricsLoads.count == 4)
     }
 
     // MARK: Weight precision

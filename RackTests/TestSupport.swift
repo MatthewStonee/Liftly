@@ -25,6 +25,19 @@ final class SaveSwitch {
     }
 }
 
+/// Counts the metrics loads a `ProgressViewModel` makes.
+@MainActor
+final class MetricsLoadCounter {
+    private(set) var count = 0
+
+    var loader: ProgressViewModel.MetricsLoader {
+        { [self] exerciseID, context in
+            count += 1
+            return try ProgressViewModel.fetchExerciseSets(exerciseID, in: context)
+        }
+    }
+}
+
 @MainActor
 enum TestStore {
     /// An isolated in-memory store configured like the app's main context.

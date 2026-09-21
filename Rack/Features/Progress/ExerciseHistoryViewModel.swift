@@ -49,10 +49,11 @@ final class ExerciseHistoryViewModel {
     @ObservationIgnored private var hasLoaded = false
     @ObservationIgnored private let pageLoader: PageLoader
 
-    /// A row that disappeared from under the user, and the row that took its place.
+    /// The row a pending deletion took from under the user, and the row holding their
+    /// place until Undo brings it back. The replacement is `nil` when no rows survived.
     private struct DisplacedAnchor {
-        let removedID: UUID
-        let replacementID: UUID
+        let originalID: UUID
+        let replacementID: UUID?
     }
 
     init(pageLoader: @escaping PageLoader = { try ExerciseHistoryViewModel.fetchPage($0, in: $1) }) {
@@ -172,7 +173,7 @@ final class ExerciseHistoryViewModel {
             initialError = nil
             inlineError = nil
             retryOperation = nil
-            updateAnchor(previousIDs: previousIDs, currentIDs: rows.map(\.id))
+            updateAnchor(previousIDs: previousIDs, currentIDs: rows.map(\.id), pendingIDs: excludedIDs)
         } catch {
             if initial { initialError = .failed(String(describing: error)) }
             else { record(error, operation: .refresh) }
@@ -180,23 +181,32 @@ final class ExerciseHistoryViewModel {
     }
 
     /// Keeps the user's place when the anchored row disappears, and returns them to it
-    /// when the row comes back.
-    private func updateAnchor(previousIDs: [UUID], currentIDs: [UUID]) {
-        guard let anchor = scrollAnchorID else { return }
-
-        // Once the user scrolls off the replacement row, their new place is their own.
-        if displacedAnchor?.replacementID != anchor { displacedAnchor = nil }
-
-        // Undo, or a failed delete, brought the row back.
-        if let displaced = displacedAnchor, currentIDs.contains(displaced.removedID) {
-            displacedAnchor = nil
-            setAnchor(displaced.removedID)
-            return
+    /// when Undo, or a failed deletion, brings the row back, however many replacement
+    /// rows were deleted in between.
+    private func updateAnchor(previousIDs: [UUID], currentIDs: [UUID], pendingIDs: Set<UUID>) {
+        if let displaced = displacedAnchor {
+            if displaced.replacementID != scrollAnchorID {
+                // The user moved off the replacement row, so their new place is their own.
+                displacedAnchor = nil
+            } else if currentIDs.contains(displaced.originalID) {
+                displacedAnchor = nil
+                setAnchor(displaced.originalID)
+                return
+            } else if !pendingIDs.contains(displaced.originalID) {
+                // The deletion committed, so the row won't come back.
+                displacedAnchor = nil
+            }
         }
 
+        guard let anchor = scrollAnchorID else { return }
         let surviving = Self.survivingAnchor(for: anchor, previousIDs: previousIDs, currentIDs: currentIDs)
         guard surviving != anchor else { return }
-        displacedAnchor = surviving.map { DisplacedAnchor(removedID: anchor, replacementID: $0) }
+        // When a replacement disappears too, it passes the place on, but Undo still
+        // returns to the original row. Only a row awaiting Undo can come back.
+        let originalID = displacedAnchor?.originalID ?? anchor
+        displacedAnchor = pendingIDs.contains(originalID)
+            ? DisplacedAnchor(originalID: originalID, replacementID: surviving)
+            : nil
         setAnchor(surviving)
     }
 
