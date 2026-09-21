@@ -51,6 +51,9 @@ struct ExerciseProgressMetrics {
 
 @Observable
 final class ProgressViewModel {
+    /// Loads every set for an exercise, the input for its detail screen's metrics.
+    typealias MetricsLoader = @MainActor (UUID, ModelContext) throws -> [LoggedSet]
+
     private static let logger = Logger(subsystem: "com.matthewstone.liftly", category: "Progress")
 
     var selectedExercise: Exercise?
@@ -58,10 +61,16 @@ final class ProgressViewModel {
     var overview = ProgressOverview()
     var exerciseMetrics = ExerciseProgressMetrics()
     @ObservationIgnored private var allSetsAscending: [LoggedSet] = []
+    @ObservationIgnored private var isShowingExerciseDetail = false
     @ObservationIgnored private let commandRunner: PersistenceCommandRunner
+    @ObservationIgnored private let metricsLoader: MetricsLoader
 
-    init(commandRunner: PersistenceCommandRunner = PersistenceCommandRunner()) {
+    init(
+        commandRunner: PersistenceCommandRunner = PersistenceCommandRunner(),
+        metricsLoader: @escaping MetricsLoader = { try ProgressViewModel.fetchExerciseSets($0, in: $1) }
+    ) {
         self.commandRunner = commandRunner
+        self.metricsLoader = metricsLoader
     }
 
     enum TimeRange: String, CaseIterable {
@@ -209,25 +218,54 @@ final class ProgressViewModel {
     }
 
     func refreshExerciseMetrics(for exercise: Exercise, context: ModelContext) {
-        let exerciseID = exercise.id
+        do {
+            refreshExerciseMetrics(with: try metricsLoader(exercise.id, context))
+        } catch {
+            Self.logger.error("Failed to refresh exercise metrics: \(String(describing: error), privacy: .public)")
+        }
+    }
+
+    static func fetchExerciseSets(_ exerciseID: UUID, in context: ModelContext) throws -> [LoggedSet] {
         let descriptor = FetchDescriptor<LoggedSet>(
             predicate: #Predicate<LoggedSet> { set in
                 set.exercise?.id == exerciseID
             },
             sortBy: [SortDescriptor(\LoggedSet.completedAt)]
         )
-
-        do {
-            refreshExerciseMetrics(with: try context.fetch(descriptor))
-        } catch {
-            Self.logger.error("Failed to refresh exercise metrics: \(String(describing: error), privacy: .public)")
-        }
+        return try context.fetch(descriptor)
     }
 
     func updateTimeRange(_ range: TimeRange) {
         guard timeRange != range else { return }
         timeRange = range
         refreshRangeMetrics()
+    }
+
+    // MARK: - Exercise Detail
+
+    /// Loads the detail screen's metrics each time it appears, including when History
+    /// pops back to it.
+    func exerciseDetailAppeared(_ exercise: Exercise, context: ModelContext) {
+        isShowingExerciseDetail = true
+        refreshExerciseMetrics(for: exercise, context: context)
+    }
+
+    /// While History covers the detail screen, changes wait for it to appear again.
+    func exerciseDetailDisappeared() {
+        isShowingExerciseDetail = false
+    }
+
+    /// Refreshes as soon as a change to this exercise saves, so reopening Quick Log
+    /// prefills the latest set.
+    func handleCommittedChange(_ notification: Notification, exercise: Exercise, context: ModelContext) {
+        guard LoggedSetChange.affects(exercise.id, notification: notification) else { return }
+        refreshVisibleExerciseMetrics(for: exercise, context: context)
+    }
+
+    /// Skipped while History covers the detail screen, which refreshes when it appears again.
+    func refreshVisibleExerciseMetrics(for exercise: Exercise, context: ModelContext) {
+        guard isShowingExerciseDetail else { return }
+        refreshExerciseMetrics(for: exercise, context: context)
     }
 
     // MARK: - Logged Set Commands
@@ -256,7 +294,6 @@ final class ProgressViewModel {
             Self.recalculatePersonalRecords(in: existingSets + [set], repCounts: [reps])
             return set
         }
-        refreshExerciseMetrics(for: exercise, context: context)
         if case .success = result { LoggedSetChange.publish(exerciseIDs: [exercise.id]) }
         return result
     }
@@ -297,7 +334,6 @@ final class ProgressViewModel {
             Self.recalculatePersonalRecords(in: exerciseSets, repCounts: [originalReps, reps])
             return context.hasChanges
         }
-        refreshExerciseMetrics(for: exercise, context: context)
         if case .success(true) = result { LoggedSetChange.publish(exerciseIDs: [exercise.id]) }
         return result.map { _ in }
     }
@@ -305,15 +341,12 @@ final class ProgressViewModel {
     /// Deletes a set and promotes the next personal record for its rep count in the same save.
     func deleteSet(_ set: LoggedSet, context: ModelContext) -> Result<Void, PersistenceCommandError> {
         guard !set.isDeleted else { return .success(()) }
-        let exercise = set.exercise
+        let exerciseID = set.exercise?.id
 
         let result = commandRunner.perform(in: context) { context in
             _ = try Self.deleteSetsInCommand([set], context: context)
         }
-        if let exercise {
-            refreshExerciseMetrics(for: exercise, context: context)
-            if case .success = result { LoggedSetChange.publish(exerciseIDs: [exercise.id]) }
-        }
+        if case .success = result, let exerciseID { LoggedSetChange.publish(exerciseIDs: [exerciseID]) }
         return result
     }
 

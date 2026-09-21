@@ -1,4 +1,6 @@
+import Combine
 import Foundation
+import Observation
 import SwiftData
 import Testing
 @testable import Rack
@@ -386,6 +388,70 @@ private final class HistoryFailureSwitch {
     var cutoffs: [Date] = []
 }
 
+/// Counts writes reported by `withObservationTracking`, whose change handler runs
+/// synchronously on the main actor that made the write.
+@MainActor
+private final class WriteCounter {
+    var count = 0
+}
+
+/// Drives `ExerciseHistoryViewModel` the way `ExerciseHistoryView` does: Delete hides a
+/// row until its batch commits, and every change to the pending deletions refreshes
+/// the loaded window.
+@MainActor
+private struct HistoryScreenDriver {
+    let container: ModelContainer
+    let exercise: Exercise
+    let coordinator: DeletionCoordinator
+    let model: ExerciseHistoryViewModel
+    /// The first loaded window, newest first.
+    let loadedIDs: [UUID]
+
+    var context: ModelContext { container.mainContext }
+    var pendingIDs: Set<UUID> { coordinator.pendingLoggedSetIDs(for: exercise.id) }
+
+    init(
+        _ fixture: (ModelContainer, Exercise),
+        commandRunner: PersistenceCommandRunner = PersistenceCommandRunner(),
+        alerts: PersistenceAlertCenter? = nil,
+        pageLoader: ExerciseHistoryViewModel.PageLoader? = nil
+    ) {
+        let (container, exercise) = fixture
+        self.container = container
+        self.exercise = exercise
+        coordinator = DeletionCoordinator(
+            context: container.mainContext, alertCenter: alerts ?? PersistenceAlertCenter(),
+            commandRunner: commandRunner,
+            sleep: { _ in try await Task.sleep(for: .seconds(3600)) }
+        )
+        model = pageLoader.map { ExerciseHistoryViewModel(pageLoader: $0) } ?? ExerciseHistoryViewModel()
+        model.loadInitial(exerciseID: exercise.id, context: container.mainContext, excluding: [])
+        loadedIDs = model.rows.map(\.id)
+    }
+
+    /// Taps Delete on the row the list is anchored to.
+    func deleteAnchoredRow() throws {
+        let anchored = try #require(model.rows.first { $0.id == model.scrollAnchorID })
+        coordinator.request(anchored)
+        refresh()
+    }
+
+    func undo() {
+        coordinator.undo()
+        refresh()
+    }
+
+    /// Runs out the batch's Undo window, which commits or rolls back its deletions.
+    func expire() throws {
+        coordinator.expire(generation: try #require(coordinator.generation))
+        refresh()
+    }
+
+    func refresh() {
+        model.refresh(exerciseID: exercise.id, context: context, excluding: pendingIDs)
+    }
+}
+
 @MainActor
 struct ExerciseHistoryViewModelTests {
     /// Sets one second apart, so a loaded window lists them newest first.
@@ -464,6 +530,165 @@ struct ExerciseHistoryViewModelTests {
         #expect(model.scrollAnchorID == elsewhere.id)
     }
 
+    @Test(arguments: [2, 3])
+    func undoAfterConsecutiveDeletionsRestoresTheOriginalAnchor(deletions: Int) throws {
+        let history = try HistoryScreenDriver(historyFixture(rowCount: 52))
+        history.model.scrollAnchorID = history.loadedIDs[10]
+
+        for step in 1...deletions {
+            try history.deleteAnchoredRow()
+            #expect(history.model.scrollAnchorID == history.loadedIDs[10 + step])
+        }
+        history.undo()
+        #expect(history.model.rows.map(\.id) == history.loadedIDs)
+        #expect(history.model.scrollAnchorID == history.loadedIDs[10])
+    }
+
+    @Test func failedBatchDeletionRestoresTheOriginalAnchor() throws {
+        let alerts = PersistenceAlertCenter()
+        let history = try HistoryScreenDriver(
+            historyFixture(rowCount: 52),
+            commandRunner: SaveSwitch(isFailing: true).runner,
+            alerts: alerts
+        )
+        history.model.scrollAnchorID = history.loadedIDs[10]
+        try history.deleteAnchoredRow()
+        try history.deleteAnchoredRow()
+
+        try history.expire()
+        #expect(alerts.currentAlert?.title == "Couldn't Delete Items")
+        #expect(history.model.rows.map(\.id) == history.loadedIDs)
+        #expect(history.model.scrollAnchorID == history.loadedIDs[10])
+    }
+
+    @Test func committedDeletionEndsRestoration() throws {
+        let history = try HistoryScreenDriver(historyFixture(rowCount: 52))
+        history.model.scrollAnchorID = history.loadedIDs[10]
+        try history.deleteAnchoredRow()
+        try history.deleteAnchoredRow()
+
+        try history.expire()
+        #expect(try TestStore.savedModels(LoggedSet.self, in: history.container).count == 50)
+        #expect(history.model.scrollAnchorID == history.loadedIDs[12])
+
+        // The committed rows can't come back, so Undo returns to the row deleted after the commit.
+        try history.deleteAnchoredRow()
+        history.undo()
+        #expect(history.model.scrollAnchorID == history.loadedIDs[12])
+    }
+
+    @Test func undoAfterFallingBackToAnEarlierRowRestoresTheOriginalAnchor() throws {
+        let history = try HistoryScreenDriver(historyFixture(rowCount: 5))
+        history.model.scrollAnchorID = history.loadedIDs[3]
+
+        try history.deleteAnchoredRow()
+        #expect(history.model.scrollAnchorID == history.loadedIDs[4])
+        try history.deleteAnchoredRow()
+        // No later row survives, so the nearest earlier one holds the place.
+        #expect(history.model.scrollAnchorID == history.loadedIDs[2])
+
+        history.undo()
+        #expect(history.model.scrollAnchorID == history.loadedIDs[3])
+    }
+
+    @Test(arguments: [1, 2])
+    func undoAfterEveryRowWasDeletedRestoresTheOriginalAnchor(rowCount: Int) throws {
+        let history = try HistoryScreenDriver(historyFixture(rowCount: rowCount))
+        history.model.scrollAnchorID = history.loadedIDs[0]
+
+        for _ in 0..<rowCount {
+            try history.deleteAnchoredRow()
+        }
+        #expect(history.model.rows.isEmpty)
+        #expect(history.model.scrollAnchorID == nil)
+
+        history.undo()
+        #expect(history.model.scrollAnchorID == history.loadedIDs[0])
+    }
+
+    @Test func scrollingAwayAfterConsecutiveDeletionsKeepsTheUsersNewPlace() throws {
+        let history = try HistoryScreenDriver(historyFixture(rowCount: 52))
+        history.model.scrollAnchorID = history.loadedIDs[10]
+        try history.deleteAnchoredRow()
+        try history.deleteAnchoredRow()
+
+        history.model.scrollAnchorID = history.loadedIDs[30] // The user scrolled on.
+        history.undo()
+        #expect(history.model.scrollAnchorID == history.loadedIDs[30])
+    }
+
+    @Test func scrollingAwayBetweenDeletionsRestoresTheLaterRow() throws {
+        let history = try HistoryScreenDriver(historyFixture(rowCount: 52))
+        history.model.scrollAnchorID = history.loadedIDs[10]
+        try history.deleteAnchoredRow()
+
+        history.model.scrollAnchorID = history.loadedIDs[30] // The user scrolled on, then deleted there.
+        try history.deleteAnchoredRow()
+        #expect(history.model.scrollAnchorID == history.loadedIDs[31])
+
+        history.undo()
+        #expect(history.model.scrollAnchorID == history.loadedIDs[30])
+    }
+
+    @Test func changingTheRangeEndsRestoration() throws {
+        let history = try HistoryScreenDriver(historyFixture(rowCount: 52))
+        history.model.scrollAnchorID = history.loadedIDs[10]
+        try history.deleteAnchoredRow()
+        try history.deleteAnchoredRow()
+
+        history.model.selectRange(
+            .oneYear, exerciseID: history.exercise.id, context: history.context,
+            excluding: history.pendingIDs
+        )
+        #expect(history.model.scrollAnchorID == nil)
+        history.model.scrollAnchorID = history.loadedIDs[12] // The user scrolled back to the same row.
+        history.undo()
+        #expect(history.model.scrollAnchorID == history.loadedIDs[12])
+    }
+
+    @Test func failedRefreshKeepsRestorationForRetry() throws {
+        let failure = HistoryFailureSwitch()
+        let history = try HistoryScreenDriver(historyFixture(rowCount: 52), pageLoader: { request, context in
+            if failure.shouldFail { throw HistoryTestFailure() }
+            return try ExerciseHistoryViewModel.fetchPage(request, in: context)
+        })
+        history.model.scrollAnchorID = history.loadedIDs[10]
+        try history.deleteAnchoredRow()
+        try history.deleteAnchoredRow()
+
+        failure.shouldFail = true
+        history.undo()
+        #expect(history.model.inlineError != nil)
+        #expect(history.model.scrollAnchorID == history.loadedIDs[12])
+
+        failure.shouldFail = false
+        history.model.retry(exerciseID: history.exercise.id, context: history.context, excluding: history.pendingIDs)
+        #expect(history.model.inlineError == nil)
+        #expect(history.model.rows.map(\.id) == history.loadedIDs)
+        #expect(history.model.scrollAnchorID == history.loadedIDs[10])
+    }
+
+    @Test func refreshesThatKeepTheAnchorDoNotScrollAgain() throws {
+        let history = try HistoryScreenDriver(historyFixture(rowCount: 52))
+        history.model.scrollAnchorID = history.loadedIDs[10]
+        try history.deleteAnchoredRow()
+        try history.deleteAnchoredRow()
+
+        let anchorWrites = WriteCounter()
+        withObservationTracking {
+            _ = history.model.scrollAnchorID
+        } onChange: {
+            MainActor.assumeIsolated { anchorWrites.count += 1 }
+        }
+        history.refresh() // A change notification or a return to the foreground.
+        history.coordinator.request(try #require(history.model.rows.last)) // A deletion away from the anchor.
+        history.refresh()
+        #expect(anchorWrites.count == 0)
+
+        history.undo()
+        #expect(history.model.scrollAnchorID == history.loadedIDs[10])
+    }
+
     @Test func returningToHistoryRefreshesTheLoadedWindowInsteadOfResetting() throws {
         let (container, exercise) = try historyFixture(rowCount: 120)
         let context = container.mainContext
@@ -480,6 +705,39 @@ struct ExerciseHistoryViewModelTests {
         #expect(model.rows.count == 100)
         #expect(requests.last?.offset == 0)
         #expect(requests.last?.limit == 100)
+    }
+
+    @Test func editKeepsTheLoadedPagesAndAnchorWithoutComputingMetrics() throws {
+        let (container, exercise) = try historyFixture(rowCount: 120)
+        let context = container.mainContext
+        let model = ExerciseHistoryViewModel()
+        model.loadInitial(exerciseID: exercise.id, context: context, excluding: [])
+        model.loadMore(exerciseID: exercise.id, context: context, excluding: [])
+        let anchored = model.rows[60]
+        model.scrollAnchorID = anchored.id
+        let metricsLoads = MetricsLoadCounter()
+        let editViewModel = ProgressViewModel(metricsLoader: metricsLoads.loader)
+        var committed: [Notification] = []
+        let subscription = NotificationCenter.default.publisher(for: LoggedSetChange.didCommit)
+            .sink { committed.append($0) }
+        defer { subscription.cancel() }
+
+        let edited = model.rows[70]
+        #expect(editViewModel.updateSet(
+            edited, reps: 8, weight: edited.weight, completedAt: edited.completedAt, context: context
+        ).failure == nil)
+        for notification in committed {
+            model.handleCommittedChange(notification, exerciseID: exercise.id, context: context, excluding: [])
+        }
+
+        #expect(committed.count == 1)
+        #expect(model.rows.count == 100)
+        #expect(model.rows.first { $0.id == edited.id }?.reps == 8)
+        #expect(model.scrollAnchorID == anchored.id)
+        #expect(metricsLoads.count == 0)
+        #expect(editViewModel.exerciseMetrics.chartPoints.isEmpty)
+        #expect(editViewModel.exerciseMetrics.totalVolume == 0)
+        #expect(editViewModel.exerciseMetrics.latestSet == nil)
     }
 
     @Test func sqlitePagesEveryTiedRowExactlyOnce() throws {
