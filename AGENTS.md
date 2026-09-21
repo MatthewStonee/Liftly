@@ -35,7 +35,6 @@ Check `Rack/Shared/` and nearby feature components before creating new UI compon
 - View-destination `NavigationLink { Destination() }` inside a pushed screen can lock `NavigationStack` into an endless update loop on iOS 27 — do NOT use it; push with `NavigationLink(value:)` or a path append, and resolve every screen in one `navigationDestination(for:)` at the stack root (see `ProgressRoute` in `ProgressView.swift`). Opening History from a screen pushed with `navigationDestination(item:)` froze the app at 100% CPU.
 
 ## Rules
-- NEVER modify `.pbxproj` files — create Swift files, user will add them to Xcode manually
 - Always use SwiftData for persistence — no CoreData, no UserDefaults for model storage (UserDefaults is fine for small flags like `"exerciseLibrarySeeded"` or `@AppStorage` preferences)
 - All new views go in `Rack/Features/<FeatureName>/`
 - Always build and test in simulator after changes
