@@ -55,10 +55,6 @@ final class Program {
     var sortedWorkouts: [WorkoutTemplate] {
         SiblingOrder.workouts(workoutsList)
     }
-
-    var exerciseCount: Int {
-        workoutsList.reduce(0) { $0 + $1.plannedExercisesList.count }
-    }
 }
 
 @Model
@@ -149,25 +145,36 @@ final class PlannedExercise {
         rangeLowerBound: Int? = nil,
         rangeUpperBound: Int? = nil
     ) {
-        repTargetType = type
+        setIfChanged(\.repTargetTypeRaw, type.rawValue)
         if let exactReps {
-            reps = max(1, exactReps)
+            setIfChanged(\.reps, max(1, exactReps))
         }
         if let rangeLowerBound {
-            repRangeLowerBound = max(1, rangeLowerBound)
+            setIfChanged(\.repRangeLowerBound, max(1, rangeLowerBound))
         }
         if let rangeUpperBound {
-            repRangeUpperBound = max(1, rangeUpperBound)
+            setIfChanged(\.repRangeUpperBound, max(1, rangeUpperBound))
         }
         normalizeRepTarget()
     }
 
     func normalizeRepTarget() {
-        reps = max(1, reps)
-        repRangeLowerBound = max(1, repRangeLowerBound)
-        repRangeUpperBound = max(repRangeLowerBound, repRangeUpperBound)
+        setIfChanged(\.reps, max(1, reps))
+        setIfChanged(\.repRangeLowerBound, max(1, repRangeLowerBound))
+        setIfChanged(\.repRangeUpperBound, max(repRangeLowerBound, repRangeUpperBound))
         if PlannedRepTargetType(rawValue: repTargetTypeRaw) == nil {
             repTargetTypeRaw = PlannedRepTargetType.exact.rawValue
+        }
+    }
+
+    /// SwiftData counts assigning an equal value as a change, so an untouched form would
+    /// still save and sync. Write only values that differ.
+    private func setIfChanged<Value: Equatable>(
+        _ keyPath: ReferenceWritableKeyPath<PlannedExercise, Value>,
+        _ value: Value
+    ) {
+        if self[keyPath: keyPath] != value {
+            self[keyPath: keyPath] = value
         }
     }
 }

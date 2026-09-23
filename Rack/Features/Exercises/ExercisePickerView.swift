@@ -12,7 +12,6 @@ struct ExercisePickerView: View {
     @State private var debouncedSearchText = ""
     @State private var selectedMuscle: MuscleGroup? = nil
     @State private var showingCreate = false
-    @State private var searchDebounceTask: Task<Void, Never>?
     @State private var selectionAlert: PersistenceAlert?
     @State private var showingSelectionAlert = false
     @State private var didSelect = false
@@ -36,21 +35,16 @@ struct ExercisePickerView: View {
                 )
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .background {
-                LinearGradient(
-                    colors: [Color(red: 0.04, green: 0.06, blue: 0.18), Color.black],
-                    startPoint: .top, endPoint: .bottom
-                )
-                .ignoresSafeArea()
-            }
+            .appBackground()
             .navigationTitle("Choose Exercise")
             .titleDisplayMode(.inline)
             .searchable(text: $searchText, prompt: "Search exercises")
-            .onChange(of: searchText) { _, newValue in
-                debounceSearch(newValue)
-            }
-            .onDisappear {
-                searchDebounceTask?.cancel()
+            .task(id: searchText) {
+                // Each keystroke cancels the previous wait, so the query only changes
+                // once typing pauses.
+                try? await Task.sleep(for: .milliseconds(150))
+                guard !Task.isCancelled else { return }
+                debouncedSearchText = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
             }
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
@@ -87,16 +81,6 @@ struct ExercisePickerView: View {
         }
     }
 
-    private func debounceSearch(_ text: String) {
-        searchDebounceTask?.cancel()
-        searchDebounceTask = Task {
-            try? await Task.sleep(for: .milliseconds(150))
-            guard !Task.isCancelled else { return }
-            await MainActor.run {
-                debouncedSearchText = text.trimmingCharacters(in: .whitespacesAndNewlines)
-            }
-        }
-    }
 
     private var muscleFilter: some View {
         ScrollView(.horizontal, showsIndicators: false) {
@@ -273,46 +257,39 @@ struct CreateExerciseView: View {
 
     var body: some View {
         NavigationStack {
-            ZStack {
-                LinearGradient(
-                    colors: [Color(red: 0.04, green: 0.06, blue: 0.18), Color.black],
-                    startPoint: .top, endPoint: .bottom
-                )
-                .ignoresSafeArea()
-
-                Form {
-                    Section("Exercise Name") {
-                        TextField("e.g. Bench Press", text: $name)
-                        if isDuplicateName {
-                            Text("An exercise with this name already exists.")
-                                .font(.caption)
-                                .foregroundStyle(.red)
-                        }
+            Form {
+                Section("Exercise Name") {
+                    TextField("e.g. Bench Press", text: $name)
+                    if isDuplicateName {
+                        Text("An exercise with this name already exists.")
+                            .font(.caption)
+                            .foregroundStyle(.red)
                     }
-                    .listRowBackground(Color.white.opacity(0.06))
-
-                    Section("Muscle Group") {
-                        Picker("Muscle Group", selection: $muscleGroup) {
-                            ForEach(MuscleGroup.allCases, id: \.self) { m in
-                                Text(m.rawValue).tag(m)
-                            }
-                        }
-                        .pickerStyle(.menu)
-                    }
-                    .listRowBackground(Color.white.opacity(0.06))
-
-                    Section("Equipment") {
-                        Picker("Equipment", selection: $equipment) {
-                            ForEach(Equipment.allCases, id: \.self) { e in
-                                Text(e.rawValue).tag(e)
-                            }
-                        }
-                        .pickerStyle(.menu)
-                    }
-                    .listRowBackground(Color.white.opacity(0.06))
                 }
-                .scrollContentBackground(.hidden)
+                .listRowBackground(Color.white.opacity(0.06))
+
+                Section("Muscle Group") {
+                    Picker("Muscle Group", selection: $muscleGroup) {
+                        ForEach(MuscleGroup.allCases, id: \.self) { m in
+                            Text(m.rawValue).tag(m)
+                        }
+                    }
+                    .pickerStyle(.menu)
+                }
+                .listRowBackground(Color.white.opacity(0.06))
+
+                Section("Equipment") {
+                    Picker("Equipment", selection: $equipment) {
+                        ForEach(Equipment.allCases, id: \.self) { e in
+                            Text(e.rawValue).tag(e)
+                        }
+                    }
+                    .pickerStyle(.menu)
+                }
+                .listRowBackground(Color.white.opacity(0.06))
             }
+            .scrollContentBackground(.hidden)
+            .appBackground()
             .navigationTitle("New Exercise")
             .titleDisplayMode(.inline)
             .toolbar {

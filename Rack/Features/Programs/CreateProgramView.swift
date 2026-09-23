@@ -59,13 +59,7 @@ struct CreateProgramView: View {
             }
             .padding(20)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .background {
-                LinearGradient(
-                    colors: [Color(red: 0.04, green: 0.06, blue: 0.18), Color.black],
-                    startPoint: .top, endPoint: .bottom
-                )
-                .ignoresSafeArea()
-            }
+            .appBackground()
             .navigationTitle(isEditing ? "Edit Program" : "New Program")
             .titleDisplayMode(.inline)
             .toolbar {

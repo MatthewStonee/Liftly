@@ -35,11 +35,6 @@ extension Double {
             ?? String(format: "%.0f", converted)
     }
 
-    /// Formats the raw value with no unit conversion (underlying formatter).
-    var formattedWeight: String {
-        Self.weightFormatter.string(from: NSNumber(value: self)) ?? String(format: "%.0f", self)
-    }
-
     private static let weightFormatter: NumberFormatter = {
         let f = NumberFormatter()
         f.minimumFractionDigits = 0

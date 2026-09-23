@@ -1,28 +1,10 @@
 import SwiftUI
 
-#if os(iOS)
 extension View {
     func titleDisplayMode(_ mode: NavigationBarItem.TitleDisplayMode) -> some View {
         self.navigationBarTitleDisplayMode(mode)
     }
 }
-#else
-enum TitleDisplayModeStub {
-    case automatic, inline, large
-}
-
-enum UIKeyboardType {
-    case decimalPad, numberPad, emailAddress, asciiCapable, URL, default_
-}
-
-extension View {
-    func titleDisplayMode(_ mode: TitleDisplayModeStub) -> some View { self }
-    func keyboardType(_ type: UIKeyboardType) -> some View { self }
-    func fullScreenCover<Content: View>(isPresented: Binding<Bool>, @ViewBuilder content: @escaping () -> Content) -> some View {
-        self.sheet(isPresented: isPresented, content: content)
-    }
-}
-#endif
 
 struct GlassCard<Content: View>: View {
     let cornerRadius: CGFloat

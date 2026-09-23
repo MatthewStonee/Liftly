@@ -253,6 +253,29 @@ struct ProgramCommandTests {
         #expect(try TestStore.savedModels(PlannedExercise.self, in: container).first?.targetWeight == 100)
     }
 
+    @Test func savingAnUntouchedPlannedExerciseWritesNothing() throws {
+        saves.isFailing = false
+        let workout = try savedWorkout()
+        let planned = try savedPlannedExercise(in: workout, name: "Bench Press", orderIndex: 0, targetWeight: 100)
+        let viewModel = WorkoutTemplateDetailViewModel(commandRunner: saves.runner)
+
+        // What the Edit Exercise sheet submits when nothing was changed.
+        let result = viewModel.updatePlannedExercise(
+            planned,
+            sets: planned.sets,
+            repTargetType: planned.repTargetType,
+            exactReps: planned.exactRepTarget,
+            rangeLowerBound: planned.repRange.lowerBound,
+            rangeUpperBound: planned.repRange.upperBound,
+            targetWeight: planned.targetWeight,
+            context: context
+        )
+
+        #expect(result.failure == nil)
+        #expect(saves.saveAttempts == 0)
+        #expect(!context.hasChanges)
+    }
+
     @Test func failedPlannedExerciseDeletionKeepsItInTheWorkout() throws {
         let workout = try savedWorkout()
         let planned = try savedPlannedExercise(in: workout, name: "Bench Press", orderIndex: 0)

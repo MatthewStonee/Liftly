@@ -4,7 +4,7 @@ import SwiftData
 struct ProgramDetailView: View {
     @Environment(\.modelContext) private var context
     @Environment(\.dismiss) private var dismiss
-    @Bindable var program: Program
+    let program: Program
     var onDeleteProgram: (() -> Void)?
     @State private var showingAddWorkout = false
     @State private var showingEditProgram = false
@@ -14,14 +14,6 @@ struct ProgramDetailView: View {
     @State private var showingPersistenceAlert = false
     @Environment(DeletionCoordinator.self) private var deletionCoordinator: DeletionCoordinator?
     @AppStorage("programDetailViewMode") private var detailMode: ProgramDetailMode = .days
-
-    private var gradient: some View {
-        LinearGradient(
-            colors: [Color(red: 0.04, green: 0.06, blue: 0.18), Color.black],
-            startPoint: .top, endPoint: .bottom
-        )
-        .ignoresSafeArea()
-    }
 
     var body: some View {
         let visibleWorkouts = SiblingOrder.workouts(program.workoutsList)
@@ -88,7 +80,7 @@ struct ProgramDetailView: View {
         }
         .navigationTitle(program.name)
         .titleDisplayMode(.inline)
-        .background { gradient }
+        .appBackground()
         .toolbar {
             ToolbarItemGroup(placement: .topBarTrailing) {
                 if isReorderMode {

@@ -18,14 +18,7 @@ struct ContentView: View {
             }
         }
         .tint(.blue)
-        .background(
-            LinearGradient(
-                colors: [Color(red: 0.04, green: 0.06, blue: 0.18), Color.black],
-                startPoint: .top,
-                endPoint: .bottom
-            )
-            .ignoresSafeArea()
-        )
+        .appBackground()
     }
 }
 

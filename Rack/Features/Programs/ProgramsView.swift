@@ -34,7 +34,7 @@ struct ProgramsView: View {
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .background { backgroundGradient }
+            .appBackground()
             .navigationTitle("Programs")
             .titleDisplayMode(.large)
             .navigationDestination(for: ProgramsRoute.self) { route in
@@ -84,15 +84,6 @@ struct ProgramsView: View {
             persistenceAlert = PersistenceAlert(title: "Couldn't Set Active Program", error: error)
             showingPersistenceAlert = true
         }
-    }
-
-    private var backgroundGradient: some View {
-        LinearGradient(
-            colors: [Color(red: 0.04, green: 0.06, blue: 0.18), Color.black],
-            startPoint: .top,
-            endPoint: .bottom
-        )
-        .ignoresSafeArea()
     }
 
     private func programList(_ sections: ProgramListSections) -> some View {

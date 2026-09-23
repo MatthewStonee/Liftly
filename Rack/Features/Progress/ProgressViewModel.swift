@@ -56,7 +56,6 @@ final class ProgressViewModel {
 
     private static let logger = Logger(subsystem: "com.matthewstone.liftly", category: "Progress")
 
-    var selectedExercise: Exercise?
     var timeRange: TimeRange = .threeMonths
     var overview = ProgressOverview()
     /// Whether an overview load has finished, so Progress doesn't show an empty state

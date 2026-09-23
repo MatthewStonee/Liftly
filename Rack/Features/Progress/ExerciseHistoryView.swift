@@ -89,12 +89,7 @@ struct ExerciseHistoryView: View {
         .scrollPosition(id: $viewModel.scrollAnchorID)
         .navigationTitle("History")
         .titleDisplayMode(.inline)
-        .background {
-            LinearGradient(
-                colors: [Color(red: 0.04, green: 0.06, blue: 0.18), Color.black],
-                startPoint: .top, endPoint: .bottom
-            ).ignoresSafeArea()
-        }
+        .appBackground()
         .sheet(item: $setToEdit) { set in
             EditLoggedSetSheet(
                 set: set,
