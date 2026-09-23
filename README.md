@@ -20,7 +20,7 @@ A personal iOS fitness and workout programming app built with SwiftUI. Liftly he
 
 ## Requirements
 
-- iOS 27.0+ (iPhone only)
+- iOS 27.0+ (iPhone, portrait only)
 - Xcode 27+
 
 ## Project Structure

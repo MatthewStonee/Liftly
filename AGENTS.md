@@ -60,7 +60,7 @@ Ask before adding a test target.
 ## Build Configuration
 - Build and test with XcodeBuildMCP without asking; never run raw `xcodebuild` shell commands.
 - Scheme: `Rack`. Target simulator: iPhone 18 Pro (iOS 27.x).
-- iPhone-only (no iPad, no Mac Catalyst); layouts can assume phone-sized viewports.
+- iPhone-only and portrait-only (no iPad, no Mac Catalyst, no landscape); layouts can assume a phone-sized portrait viewport.
 
 ## Open To-Dos
 - Tracked in Notion: https://www.notion.so/33def31f82228136a7fbe2bb7b7262e6. Statuses can lag the code, so check the code before relying on one.
