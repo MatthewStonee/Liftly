@@ -502,6 +502,7 @@ struct ExerciseProgressView: View {
                     }
                     .font(.subheadline.bold())
                     .frame(minHeight: 44)
+                    .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
                 .foregroundStyle(.blue)
@@ -512,6 +513,11 @@ struct ExerciseProgressView: View {
 }
 
 struct ExerciseProgressChartCard: View, Equatable {
+    private struct DisplayPoint {
+        let date: Date
+        let weight: Double
+    }
+
     let chartPoints: [ExerciseProgressChartPoint]
     let weightUnit: WeightUnit
 
@@ -542,36 +548,29 @@ struct ExerciseProgressChartCard: View, Equatable {
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 24)
                 } else {
+                    let displayPoints = chartPoints.map {
+                        DisplayPoint(date: $0.date, weight: $0.displayWeight(unit: weightUnit))
+                    }
                     Chart {
-                        ForEach(chartPoints) { point in
-                            LineMark(
-                                x: .value("Date", point.date),
-                                y: .value("Weight (\(weightUnit.symbol))", point.displayWeight(unit: weightUnit))
+                        AreaPlot(displayPoints,
+                                 x: .value("Date", \.date),
+                                 y: .value("Weight (\(weightUnit.symbol))", \.weight))
+                            .foregroundStyle(
+                                LinearGradient(colors: [.blue.opacity(0.3), .clear],
+                                               startPoint: .top, endPoint: .bottom)
                             )
+                            .interpolationMethod(.catmullRom)
+                        LinePlot(displayPoints,
+                                 x: .value("Date", \.date),
+                                 y: .value("Weight (\(weightUnit.symbol))", \.weight))
                             .foregroundStyle(Color.blue)
                             .interpolationMethod(.catmullRom)
-
-                            AreaMark(
-                                x: .value("Date", point.date),
-                                y: .value("Weight (\(weightUnit.symbol))", point.displayWeight(unit: weightUnit))
-                            )
-                            .foregroundStyle(
-                                LinearGradient(
-                                    colors: [.blue.opacity(0.3), .clear],
-                                    startPoint: .top,
-                                    endPoint: .bottom
-                                )
-                            )
-                            .interpolationMethod(.catmullRom)
-
-                            if chartPoints.count <= 60 {
-                                PointMark(
-                                    x: .value("Date", point.date),
-                                    y: .value("Weight (\(weightUnit.symbol))", point.displayWeight(unit: weightUnit))
-                                )
+                        if chartPoints.count <= 60 {
+                            PointPlot(displayPoints,
+                                      x: .value("Date", \.date),
+                                      y: .value("Weight (\(weightUnit.symbol))", \.weight))
                                 .foregroundStyle(Color.blue)
                                 .symbolSize(30)
-                            }
                         }
                     }
                     .chartXAxis {

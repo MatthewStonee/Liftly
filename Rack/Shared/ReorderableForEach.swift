@@ -40,6 +40,7 @@ struct ReorderDragHandle: View {
     let preview: AnyView?
     let onDragBegan: () -> Void
     let onDragEnded: () -> Void
+    @State private var isDragging = false
 
     var body: some View {
         let icon = Image(systemName: "line.3.horizontal")
@@ -51,30 +52,31 @@ struct ReorderDragHandle: View {
         Group {
             if isEnabled, let preview {
                 icon
-                    .draggable(payload) {
-                        ReorderDragPreview(
-                            content: preview,
-                            onAppear: onDragBegan,
-                            onDisappear: onDragEnded
-                        )
+                    .draggable(payload) { preview }
+                    .dragConfiguration(DragConfiguration(allowMove: true))
+                    .onDragSessionUpdated { session in
+                        switch session.phase {
+                        case .initial, .active:
+                            guard !isDragging else { return }
+                            isDragging = true
+                            onDragBegan()
+                        case .ended(let operation):
+                            if operation == .cancel || operation == .forbidden {
+                                isDragging = false
+                                onDragEnded()
+                            }
+                        case .dataTransferCompleted:
+                            isDragging = false
+                            onDragEnded()
+                        default:
+                            break
+                        }
                     }
             } else {
                 icon
             }
         }
         .accessibilityLabel("Drag to reorder")
-    }
-}
-
-private struct ReorderDragPreview: View {
-    let content: AnyView
-    let onAppear: () -> Void
-    let onDisappear: () -> Void
-
-    var body: some View {
-        content
-            .onAppear(perform: onAppear)
-            .onDisappear(perform: onDisappear)
     }
 }
 
@@ -87,6 +89,7 @@ struct ReorderableForEach<T: Identifiable, Content: View>: View where T.ID: Hash
     let onCommitOrder: (_ orderedIDs: [T.ID]) -> Void
     @ViewBuilder let content: (T, _ dragHandle: ReorderDragHandle) -> Content
 
+    @State private var rowHeights: [T.ID: CGFloat] = [:]
     @State private var draggedID: T.ID? = nil
     @State private var dragState = ReorderDragState<T.ID>()
     @State private var targetInsertionIndex: Int? = nil
@@ -98,12 +101,15 @@ struct ReorderableForEach<T: Identifiable, Content: View>: View where T.ID: Hash
 
     private let rowSpacing: CGFloat = 12
     private let appendZoneHeight: CGFloat = 56
-    private let targetExpansion: CGFloat = 12
 
     var body: some View {
         VStack(spacing: rowSpacing) {
             ForEach(Array(displayItems.enumerated()), id: \.element.id) { index, item in
                 content(item, dragHandle(for: item))
+                    .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { height in
+                        rowHeights[item.id] = height
+                    }
+                    .contentShape(Rectangle())
                     .opacity(isEnabled && draggedID == item.id ? 0.3 : 1.0)
                     .scaleEffect(!reduceMotion && isEnabled && draggedID == item.id ? 0.98 : 1.0)
                     .zIndex(draggedID == item.id ? 1 : 0)
@@ -113,9 +119,26 @@ struct ReorderableForEach<T: Identifiable, Content: View>: View where T.ID: Hash
                             Button("Move Down") { moveByOne(item.id, offset: 1) }
                         }
                     }
-                    .background {
-                        if isEnabled {
-                            rowDropTargets(for: index)
+                    // On iOS 27, DropSession.size can be the hosting window's size.
+                    // Its location is row-local, so compare it with the measured row height.
+                    .dropDestination(for: String.self, isEnabled: isEnabled) { payloads, session in
+                        let belowMidpoint = session.location.y >= (rowHeights[item.id] ?? .infinity) / 2
+                        _ = handleDrop(payloads, at: index + (belowMidpoint ? 1 : 0))
+                    }
+                    .dropConfiguration { _ in
+                        DropConfiguration(operation: dragState.session == nil ? .forbidden : .move)
+                    }
+                    .onDropSessionUpdated { session in
+                        let belowMidpoint = session.location.y >= (rowHeights[item.id] ?? .infinity) / 2
+                        let insertion = index + (belowMidpoint ? 1 : 0)
+                        let target = IndicatorTarget.row(index: index, edge: belowMidpoint ? .bottom : .top)
+                        switch session.phase {
+                        case .entering, .active:
+                            updateDropTarget(at: insertion, indicatorTarget: target, isTargeted: true)
+                        case .exiting, .ended, .dataTransferCompleted:
+                            updateDropTarget(at: insertion, indicatorTarget: target, isTargeted: false)
+                        default:
+                            break
                         }
                     }
                     .overlay(alignment: .top) {
@@ -149,6 +172,7 @@ struct ReorderableForEach<T: Identifiable, Content: View>: View where T.ID: Hash
             }
         }
         .onChange(of: itemTokens) { _, newIDs in
+            rowHeights = rowHeights.filter { newIDs.contains($0.key) }
             if let session = dragState.session, session.initialIDs != newIDs {
                 resetDragState()
             }
@@ -190,29 +214,6 @@ struct ReorderableForEach<T: Identifiable, Content: View>: View where T.ID: Hash
         }
     }
 
-    private func rowDropTargets(for index: Int) -> some View {
-        GeometryReader { geometry in
-            ZStack {
-                dropTarget(
-                    at: index,
-                    height: max((geometry.size.height / 2) + targetExpansion, 44),
-                    indicatorTarget: .row(index: index, edge: .top)
-                )
-                .frame(maxHeight: .infinity, alignment: .top)
-                .offset(y: -targetExpansion)
-
-                dropTarget(
-                    at: index + 1,
-                    height: max((geometry.size.height / 2) + targetExpansion, 44),
-                    indicatorTarget: .row(index: index, edge: .bottom)
-                )
-                .frame(maxHeight: .infinity, alignment: .bottom)
-                .offset(y: targetExpansion)
-            }
-            .frame(width: geometry.size.width, height: geometry.size.height)
-        }
-    }
-
     private func dropTarget(
         at index: Int,
         height: CGFloat,
@@ -222,19 +223,22 @@ struct ReorderableForEach<T: Identifiable, Content: View>: View where T.ID: Hash
             .frame(maxWidth: .infinity)
             .frame(height: max(height, 1))
             .contentShape(Rectangle())
-            .dropDestination(
-                for: String.self,
-                action: { payloads, _ in
-                    handleDrop(payloads, at: index)
-                },
-                isTargeted: { targeted in
-                    updateDropTarget(
-                        at: index,
-                        indicatorTarget: indicatorTarget,
-                        isTargeted: targeted
-                    )
+            .dropDestination(for: String.self, isEnabled: isEnabled) { payloads, _ in
+                _ = handleDrop(payloads, at: index)
+            }
+            .dropConfiguration { _ in
+                DropConfiguration(operation: dragState.session == nil ? .forbidden : .move)
+            }
+            .onDropSessionUpdated { session in
+                switch session.phase {
+                case .entering, .active:
+                    updateDropTarget(at: index, indicatorTarget: indicatorTarget, isTargeted: true)
+                case .exiting, .ended, .dataTransferCompleted:
+                    updateDropTarget(at: index, indicatorTarget: indicatorTarget, isTargeted: false)
+                default:
+                    break
                 }
-            )
+            }
     }
 
     private var insertionIndicator: some View {
@@ -288,7 +292,7 @@ struct ReorderableForEach<T: Identifiable, Content: View>: View where T.ID: Hash
     }
 
     private func beginDrag(for id: T.ID) {
-        guard isEnabled else { return }
+        guard isEnabled, draggedID != id else { return }
         draggedID = id
         dragState.begin(id: id, collection: items.map(\.id))
 

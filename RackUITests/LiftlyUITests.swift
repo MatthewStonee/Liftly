@@ -1,6 +1,6 @@
 import XCTest
 
-/// Add this source to a Rack UI-testing target in Xcode. Each test gets its own
+/// UI integration tests in the RackUITests target. Each test gets its own
 /// local-only SwiftData store and can relaunch against the same fixture ID.
 final class LiftlyUITests: XCTestCase {
     private var app: XCUIApplication!
@@ -11,6 +11,18 @@ final class LiftlyUITests: XCTestCase {
         continueAfterFailure = false
         fixtureID = UUID().uuidString
         app = XCUIApplication()
+    }
+
+    override func tearDown() {
+        if let run = testRun, !run.hasSucceeded, app.state == .runningForeground {
+            let screenshot = XCTAttachment(screenshot: app.screenshot())
+            screenshot.lifetime = .keepAlways
+            add(screenshot)
+            let hierarchy = XCTAttachment(string: app.debugDescription)
+            hierarchy.lifetime = .keepAlways
+            add(hierarchy)
+        }
+        super.tearDown()
     }
 
     private func launch(_ fixture: String, extraArguments: [String] = []) {
@@ -27,6 +39,8 @@ final class LiftlyUITests: XCTestCase {
         exercise.tap()
         let historyLink = app.buttons["progress.viewAllHistory"]
         XCTAssertTrue(historyLink.waitForExistence(timeout: 5))
+        for _ in 0..<6 where !historyLink.isHittable { app.scrollViews.firstMatch.swipeUp() }
+        XCTAssertTrue(historyLink.isHittable)
         historyLink.tap()
         XCTAssertTrue(app.navigationBars["History"].waitForExistence(timeout: 5))
     }
@@ -62,9 +76,20 @@ final class LiftlyUITests: XCTestCase {
         let handle = app.descendants(matching: .any)["workout.drag.Day A"]
         let target = app.descendants(matching: .any)["workout.row.Day C"]
         XCTAssertTrue(handle.exists && target.exists)
-        handle.press(forDuration: 1, thenDragTo: target)
+        handle.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+            .press(forDuration: 2, thenDragTo: target.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.8)),
+                   withVelocity: .slow, thenHoldForDuration: 2)
+        // The system transfers the drag payload asynchronously after release.
+        let reordered = XCTNSPredicateExpectation(
+            predicate: NSPredicate { [self] _, _ in
+                workoutOrder() == ["Day B", "Day C", "Day A"]
+            }, object: nil
+        )
+        let result = XCTWaiter.wait(for: [reordered], timeout: 5)
+        XCTAssertEqual(result, .completed)
         let accepted = workoutOrder()
-        XCTAssertNotEqual(accepted, initial)
+        XCTAssertEqual(initial, ["Day A", "Day B", "Day C"])
+        XCTAssertEqual(accepted, ["Day B", "Day C", "Day A"])
 
         let cancelHandle = app.descendants(matching: .any)["workout.drag.Day B"]
         cancelHandle.press(forDuration: 1, thenDragTo: app.navigationBars.firstMatch)
@@ -78,7 +103,7 @@ final class LiftlyUITests: XCTestCase {
     }
 
     func testDelayedDeletionFailureKeepsSheetDraftAndRestoresSet() {
-        launch("history", extraArguments: ["-LiftlyDebugSaveFailures", "1"])
+        launch("history", extraArguments: ["-LiftlyDebugSaveFailures", "1", "-LiftlyUITestUndoSeconds", "12"])
         openHistory()
         let deleteButtons = app.buttons.matching(
             NSPredicate(format: "identifier BEGINSWITH %@", "history.delete.")
@@ -100,7 +125,7 @@ final class LiftlyUITests: XCTestCase {
         let draft = weight.value as? String
 
         let alert = app.alerts["Couldn't Delete Items"]
-        XCTAssertTrue(alert.waitForExistence(timeout: 8))
+        XCTAssertTrue(alert.waitForExistence(timeout: 15))
         alert.buttons["OK"].tap()
         XCTAssertTrue(app.navigationBars["Edit Set"].exists)
         XCTAssertEqual(weight.value as? String, draft)

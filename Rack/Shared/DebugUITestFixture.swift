@@ -28,6 +28,14 @@ enum DebugUITestFixture {
         return Configuration(name: name, id: id)
     }
 
+    /// Allows slower UI automation to finish its draft before the delayed failure.
+    /// Only isolated fixtures can override the production four-second interval.
+    static var undoInterval: TimeInterval {
+        guard current != nil else { return 4 }
+        let seconds = UserDefaults.standard.double(forKey: "LiftlyUITestUndoSeconds")
+        return seconds.isFinite && (4...30).contains(seconds) ? seconds : 4
+    }
+
     static func open(_ fixture: Configuration) throws -> ModelContainer {
         guard let support = FileManager.default.urls(
             for: .applicationSupportDirectory, in: .userDomainMask

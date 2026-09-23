@@ -38,7 +38,8 @@ final class DeletionCoordinator {
     @ObservationIgnored private let onFetch: (FetchKind) -> Void
     @ObservationIgnored private var timer: Task<Void, Never>?
     @ObservationIgnored private var deadline: Date?
-    @ObservationIgnored private var remaining: TimeInterval = 4
+    @ObservationIgnored private let undoInterval: TimeInterval
+    @ObservationIgnored private var remaining: TimeInterval
 
     enum FetchKind: Equatable {
         case requestedPrograms, requestedWorkouts, requestedPlanned, requestedLoggedSets
@@ -48,11 +49,14 @@ final class DeletionCoordinator {
     init(
         context: ModelContext,
         alertCenter: PersistenceAlertCenter,
+        undoInterval: TimeInterval = 4,
         commandRunner: PersistenceCommandRunner = PersistenceCommandRunner(),
         now: @escaping () -> Date = Date.init,
         sleep: @escaping @Sendable (Duration) async throws -> Void = { try await Task.sleep(for: $0) },
         onFetch: @escaping (FetchKind) -> Void = { _ in }
     ) {
+        self.undoInterval = undoInterval
+        self.remaining = undoInterval
         self.context = context
         self.alertCenter = alertCenter
         self.commandRunner = commandRunner
@@ -152,7 +156,7 @@ final class DeletionCoordinator {
         pending = []
         generation = nil
         deadline = nil
-        remaining = 4
+        remaining = undoInterval
         isToastDismissed = false
     }
 
@@ -213,12 +217,12 @@ final class DeletionCoordinator {
         }
         pending.append(identity)
         isToastDismissed = false
-        remaining = 4
+        remaining = undoInterval
         if isPaused {
             timer?.cancel()
             generation = UUID()
         } else {
-            restartTimer(after: 4)
+            restartTimer(after: undoInterval)
         }
     }
 

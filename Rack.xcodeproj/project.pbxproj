@@ -17,6 +17,13 @@
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
+		343880F930617C2A002D190A /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 34300FDF2F7C4E0B00BD6A4F /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 34300FE62F7C4E0B00BD6A4F;
+			remoteInfo = Rack;
+		};
 		34B0A5ED305C5CA200EE0FCF /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
 			containerPortal = 34300FDF2F7C4E0B00BD6A4F /* Project object */;
@@ -28,6 +35,7 @@
 
 /* Begin PBXFileReference section */
 		34300FE72F7C4E0B00BD6A4F /* Rack.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Rack.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		343880F530617C2A002D190A /* RackUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = RackUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		34B0A5E9305C5CA200EE0FCF /* LiftlyUnitTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = LiftlyUnitTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		34B0A5F2305C612100EE0FCF /* AppDataStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDataStoreTests.swift; sourceTree = "<group>"; };
 		34B0A5F3305C612100EE0FCF /* P2RegressionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = P2RegressionTests.swift; sourceTree = "<group>"; };
@@ -57,15 +65,22 @@
 			path = Rack;
 			sourceTree = "<group>";
 		};
-		34B0A5EA305C5CA200EE0FCF /* LiftlyUnitTests */ = {
+		343880F630617C2A002D190A /* RackUITests */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
-			path = LiftlyUnitTests;
+			path = RackUITests;
 			sourceTree = "<group>";
 		};
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
 		34300FE42F7C4E0B00BD6A4F /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		343880F230617C2A002D190A /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -87,7 +102,7 @@
 			children = (
 				34B0A5F9305C612100EE0FCF /* RackTests */,
 				34300FE92F7C4E0B00BD6A4F /* Rack */,
-				34B0A5EA305C5CA200EE0FCF /* LiftlyUnitTests */,
+				343880F630617C2A002D190A /* RackUITests */,
 				34300FE82F7C4E0B00BD6A4F /* Products */,
 			);
 			sourceTree = "<group>";
@@ -97,6 +112,7 @@
 			children = (
 				34300FE72F7C4E0B00BD6A4F /* Rack.app */,
 				34B0A5E9305C5CA200EE0FCF /* LiftlyUnitTests.xctest */,
+				343880F530617C2A002D190A /* RackUITests.xctest */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -140,6 +156,29 @@
 			productReference = 34300FE72F7C4E0B00BD6A4F /* Rack.app */;
 			productType = "com.apple.product-type.application";
 		};
+		343880F430617C2A002D190A /* RackUITests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 343880FD30617C2A002D190A /* Build configuration list for PBXNativeTarget "RackUITests" */;
+			buildPhases = (
+				343880F130617C2A002D190A /* Sources */,
+				343880F230617C2A002D190A /* Frameworks */,
+				343880F330617C2A002D190A /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				343880FA30617C2A002D190A /* PBXTargetDependency */,
+			);
+			fileSystemSynchronizedGroups = (
+				343880F630617C2A002D190A /* RackUITests */,
+			);
+			name = RackUITests;
+			packageProductDependencies = (
+			);
+			productName = RackUITests;
+			productReference = 343880F530617C2A002D190A /* RackUITests.xctest */;
+			productType = "com.apple.product-type.bundle.ui-testing";
+		};
 		34B0A5E8305C5CA200EE0FCF /* LiftlyUnitTests */ = {
 			isa = PBXNativeTarget;
 			buildConfigurationList = 34B0A5EF305C5CA300EE0FCF /* Build configuration list for PBXNativeTarget "LiftlyUnitTests" */;
@@ -152,9 +191,6 @@
 			);
 			dependencies = (
 				34B0A5EE305C5CA200EE0FCF /* PBXTargetDependency */,
-			);
-			fileSystemSynchronizedGroups = (
-				34B0A5EA305C5CA200EE0FCF /* LiftlyUnitTests */,
 			);
 			name = LiftlyUnitTests;
 			packageProductDependencies = (
@@ -175,6 +211,10 @@
 				TargetAttributes = {
 					34300FE62F7C4E0B00BD6A4F = {
 						CreatedOnToolsVersion = 26.3;
+					};
+					343880F430617C2A002D190A = {
+						CreatedOnToolsVersion = 27.0;
+						TestTargetID = 34300FE62F7C4E0B00BD6A4F;
 					};
 					34B0A5E8305C5CA200EE0FCF = {
 						CreatedOnToolsVersion = 27.0;
@@ -198,12 +238,20 @@
 			targets = (
 				34300FE62F7C4E0B00BD6A4F /* Rack */,
 				34B0A5E8305C5CA200EE0FCF /* LiftlyUnitTests */,
+				343880F430617C2A002D190A /* RackUITests */,
 			);
 		};
 /* End PBXProject section */
 
 /* Begin PBXResourcesBuildPhase section */
 		34300FE52F7C4E0B00BD6A4F /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		343880F330617C2A002D190A /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -227,6 +275,13 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		343880F130617C2A002D190A /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		34B0A5E5305C5CA200EE0FCF /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -244,6 +299,11 @@
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
+		343880FA30617C2A002D190A /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 34300FE62F7C4E0B00BD6A4F /* Rack */;
+			targetProxy = 343880F930617C2A002D190A /* PBXContainerItemProxy */;
+		};
 		34B0A5EE305C5CA200EE0FCF /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
 			target = 34300FE62F7C4E0B00BD6A4F /* Rack */;
@@ -469,6 +529,51 @@
 			};
 			name = Release;
 		};
+		343880FB30617C2A002D190A /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = XLW8A9X97L;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 27.0;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = Stone.RackUITests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				STRING_CATALOG_GENERATE_SYMBOLS = NO;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 1;
+				TEST_TARGET_NAME = Rack;
+			};
+			name = Debug;
+		};
+		343880FC30617C2A002D190A /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = XLW8A9X97L;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 27.0;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = Stone.RackUITests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				STRING_CATALOG_GENERATE_SYMBOLS = NO;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 1;
+				TEST_TARGET_NAME = Rack;
+				VALIDATE_PRODUCT = YES;
+			};
+			name = Release;
+		};
 		34B0A5F0305C5CA300EE0FCF /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
@@ -541,6 +646,15 @@
 			buildConfigurations = (
 				34300FF32F7C4E0D00BD6A4F /* Debug */,
 				34300FF42F7C4E0D00BD6A4F /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		343880FD30617C2A002D190A /* Build configuration list for PBXNativeTarget "RackUITests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				343880FB30617C2A002D190A /* Debug */,
+				343880FC30617C2A002D190A /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;

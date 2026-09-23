@@ -47,9 +47,15 @@ private struct LoadedAppView: View {
         self.container = container
         let center = PersistenceAlertCenter()
         _alertCenter = State(initialValue: center)
+        #if DEBUG
+        let undoInterval = DebugUITestFixture.undoInterval
+        #else
+        let undoInterval: TimeInterval = 4
+        #endif
         _deletionCoordinator = State(initialValue: DeletionCoordinator(
             context: container.mainContext,
-            alertCenter: center
+            alertCenter: center,
+            undoInterval: undoInterval
         ))
         _showingSyncNotice = State(initialValue: isCloudSyncUnavailable)
     }
