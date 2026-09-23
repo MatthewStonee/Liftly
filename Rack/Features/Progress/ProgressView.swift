@@ -154,10 +154,10 @@ struct ProgressTabView: View {
                 .foregroundStyle(.blue)
 
             HStack(alignment: .firstTextBaseline, spacing: 4) {
-                Text(viewModel.overview.weeklyVolume > 0 ? String(format: "%.0f", weightUnit.display(viewModel.overview.weeklyVolume)) : "\u{2014}")
+                Text(weeklyVolumeText ?? "\u{2014}")
                     .font(.system(size: 34, weight: .black))
                     .foregroundStyle(.white)
-                if viewModel.overview.weeklyVolume > 0 {
+                if weeklyVolumeText != nil {
                     Text(weightUnit.symbol)
                         .font(.title3)
                         .foregroundStyle(.secondary)
@@ -171,6 +171,16 @@ struct ProgressTabView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(20)
         .glassBackground()
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Weekly volume, last 7 days")
+        .accessibilityValue(weeklyVolumeText.map { "\($0) \(weightUnit.spokenName)" } ?? "None")
+    }
+
+    /// Grouped for readability, such as "12,500"; `nil` when nothing was lifted.
+    private var weeklyVolumeText: String? {
+        let volume = viewModel.overview.weeklyVolume
+        guard volume > 0 else { return nil }
+        return weightUnit.display(volume).formatted(.number.precision(.fractionLength(0)))
     }
 
     private var exerciseList: some View {
@@ -180,17 +190,14 @@ struct ProgressTabView: View {
                     weeklyVolumeCard
 
                     ForEach(viewModel.overview.programExercises) { exercise in
-                        ExerciseProgressRow(
-                            exercise: exercise,
-                            summary: viewModel.overview.summariesByExerciseID[exercise.id] ?? ExerciseProgressSummary()
-                        )
-                        .contentShape(Rectangle())
-                        .onTapGesture {
-                            path.append(.exercise(exercise))
+                        let summary = viewModel.overview.summariesByExerciseID[exercise.id] ?? ExerciseProgressSummary()
+                        NavigationLink(value: ProgressRoute.exercise(exercise)) {
+                            ExerciseProgressRow(exercise: exercise, summary: summary)
                         }
-                        .accessibilityElement()
-                        .accessibilityLabel(exercise.name)
-                        .accessibilityAddTraits(.isButton)
+                        .buttonStyle(.plain)
+                        .accessibilityLabel(
+                            ExerciseProgressRow.accessibilityLabel(for: exercise, summary: summary, unit: weightUnit)
+                        )
                         .accessibilityIdentifier("progress.exercise.\(exercise.name)")
                     }
                 }
@@ -267,7 +274,7 @@ struct ExerciseProgressRow: View {
 
                 HStack(spacing: 14) {
                     VStack(alignment: .leading, spacing: 2) {
-                        Text("Last PR")
+                        Text("PR Weight")
                             .font(.caption2)
                             .foregroundStyle(.secondary)
                         if summary.prWeight > 0 {
@@ -310,10 +317,27 @@ struct ExerciseProgressRow: View {
                 .font(.caption)
                 .foregroundStyle(.tertiary)
                 .padding(.trailing, 14)
+                .accessibilityHidden(true)
         }
         .frame(maxWidth: .infinity)
-        .glassBackground()
+        // Clip before adding glass: a view's content moves into the glass rendering
+        // pass, where a later `clipShape` no longer rounds the accent bar.
         .clipShape(RoundedRectangle(cornerRadius: 20))
+        .glassBackground()
+        .contentShape(Rectangle())
+    }
+
+    /// Everything the row shows, such as "Bench Press, Chest, PR weight 225 pounds, 42 sets".
+    static func accessibilityLabel(
+        for exercise: Exercise,
+        summary: ExerciseProgressSummary,
+        unit: WeightUnit
+    ) -> String {
+        let record = summary.prWeight > 0
+            ? "PR weight \(summary.prWeight.formattedWeight(unit: unit)) \(unit.spokenName)"
+            : "No PR yet"
+        let sets = "\(summary.setCount) \(summary.setCount == 1 ? "set" : "sets")"
+        return "\(exercise.name), \(exercise.muscleGroup.rawValue), \(record), \(sets)"
     }
 }
 
@@ -327,7 +351,6 @@ struct ExerciseProgressView: View {
     @State private var viewModel = ProgressViewModel()
     @State private var showingQuickLog = false
     @State private var setToEdit: LoggedSet?
-    @Namespace private var pickerNamespace
     @AppStorage("weightUnit") private var weightUnit: WeightUnit = .lbs
     @Environment(\.locale) private var locale
 
@@ -342,7 +365,9 @@ struct ExerciseProgressView: View {
                         .tracking(-0.5)
                         .frame(maxWidth: .infinity, alignment: .leading)
                     statsCard(pr: metrics.personalRecord, totalVol: metrics.totalVolume)
-                    timeRangePicker
+                    TimeRangePicker(selection: viewModel.timeRange, identifierPrefix: "progress.range") { range in
+                        viewModel.updateTimeRange(range)
+                    }
                     ExerciseProgressChartCard(chartPoints: metrics.chartPoints, weightUnit: weightUnit)
                         .equatable()
                     setHistoryCard(
@@ -372,21 +397,11 @@ struct ExerciseProgressView: View {
                     .font(.title2.bold())
                     .foregroundStyle(.blue)
                     .frame(width: 58, height: 58)
-                    .background(Color.white.opacity(0.06), in: Circle())
-                    .overlay(
-                        Circle().strokeBorder(
-                            LinearGradient(
-                                colors: [.white.opacity(0.45), .blue.opacity(0.15)],
-                                startPoint: .topLeading,
-                                endPoint: .bottomTrailing
-                            ),
-                            lineWidth: 0.75
-                        )
-                    )
-                    .shadow(color: .blue.opacity(0.25), radius: 20, x: 0, y: 8)
-                    .shadow(color: .black.opacity(0.3), radius: 6, x: 0, y: 2)
+                    .contentShape(Circle())
             }
+            .buttonStyle(FABButtonStyle())
             .accessibilityLabel("Log Set")
+            .accessibilityIdentifier("progress.logSet")
             .padding(.trailing, 20)
             .padding(.bottom, 12)
         }
@@ -441,38 +456,13 @@ struct ExerciseProgressView: View {
                     surface: .embedded
                 )
                 StatBadge(
-                    value: totalVol > 0 ? String(format: "%.0f", weightUnit.display(totalVol)) : "\u{2014}",
+                    value: totalVol > 0
+                        ? weightUnit.display(totalVol).formatted(.number.precision(.fractionLength(0)))
+                        : "\u{2014}",
                     label: "Total Vol. (\(weightUnit.symbol))",
                     surface: .embedded
                 )
             }
-        }
-    }
-
-    private var timeRangePicker: some View {
-        GlassCard(padding: 8) {
-            HStack(spacing: 0) {
-                ForEach(ProgressViewModel.TimeRange.allCases, id: \.self) { range in
-                    Button {
-                        viewModel.updateTimeRange(range)
-                    } label: {
-                        Text(range.rawValue)
-                            .font(.subheadline.bold())
-                            .frame(maxWidth: .infinity)
-                            .frame(minHeight: 44)
-                            .foregroundStyle(viewModel.timeRange == range ? Color.white : Color.secondary.opacity(0.7))
-                            .background {
-                                if viewModel.timeRange == range {
-                                    RoundedRectangle(cornerRadius: 10)
-                                        .fill(Color.blue)
-                                        .matchedGeometryEffect(id: "pickerPill", in: pickerNamespace)
-                                }
-                            }
-                    }
-                    .buttonStyle(.plain)
-                }
-            }
-            .animation(.spring(response: 0.3, dampingFraction: 0.75), value: viewModel.timeRange)
         }
     }
 
@@ -493,21 +483,27 @@ struct ExerciseProgressView: View {
                 } else {
                     VStack(spacing: 0) {
                     ForEach(recentSets) { set in
-                        HStack {
-                            Text(set.completedAt.formatted(.dateTime.month(.abbreviated).day()))
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                                .frame(width: 50, alignment: .leading)
-                            Text(set.weight == 0 ? "Bodyweight" : "\(set.weight.formattedWeight(unit: weightUnit)) \(weightUnit.symbol)")
-                                .font(.subheadline)
-                            Spacer()
-                            Text("\u{d7} \(set.reps)")
-                                .font(.subheadline.bold())
-                                .foregroundStyle(.blue)
+                        Button {
+                            setToEdit = set
+                        } label: {
+                            HStack {
+                                Text(set.completedAt.formatted(.dateTime.month(.abbreviated).day()))
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                                    .frame(width: 50, alignment: .leading)
+                                Text(set.weight == 0 ? "Bodyweight" : "\(set.weight.formattedWeight(unit: weightUnit)) \(weightUnit.symbol)")
+                                    .font(.subheadline)
+                                Spacer()
+                                Text("\u{d7} \(set.reps)")
+                                    .font(.subheadline.bold())
+                                    .foregroundStyle(.blue)
+                            }
+                            .frame(minHeight: 44)
+                            .contentShape(Rectangle())
                         }
-                        .frame(minHeight: 44)
-                        .contentShape(Rectangle())
-                        .onTapGesture { setToEdit = set }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel(set.spokenSummary(unit: weightUnit, dateStyle: .dateTime.month(.abbreviated).day()))
+                        .accessibilityHint("Edits this set")
                         .contextMenu {
                             Button {
                                 setToEdit = set
@@ -624,7 +620,7 @@ struct ExerciseProgressChartCard: View, Equatable {
                         }
                     }
                     .chartYAxisLabel("Weight (\(weightUnit.symbol))")
-                    .accessibilityLabel("Maximum weight over time in \(weightUnit == .lbs ? "pounds" : "kilograms")")
+                    .accessibilityLabel("Maximum weight over time in \(weightUnit.spokenName)")
                     .frame(height: 200)
                 }
             }
@@ -697,6 +693,7 @@ struct QuickLogSheet: View {
                             .font(.subheadline.bold())
                             .foregroundStyle(.secondary)
                         TextField("0", text: $weightDraft.text)
+                            .accessibilityLabel("Weight in \(weightDraft.input.unit.spokenName)")
                             .keyboardType(.decimalPad)
                             .focused($isWeightFieldFocused)
                             .font(.title2.bold())
@@ -731,6 +728,7 @@ struct QuickLogSheet: View {
                                     .background(Color.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 14))
                             }
                             .buttonStyle(.plain)
+                            .buttonRepeatBehavior(.enabled)
                             .accessibilityLabel("Decrease reps")
 
                             Text("\(reps)")
@@ -747,6 +745,7 @@ struct QuickLogSheet: View {
                                     .background(Color.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 14))
                             }
                             .buttonStyle(.plain)
+                            .buttonRepeatBehavior(.enabled)
                             .accessibilityLabel("Increase reps")
                         }
                     }
@@ -883,6 +882,7 @@ struct EditLoggedSetSheet: View {
                             .font(.subheadline.bold())
                             .foregroundStyle(.secondary)
                         TextField("0", text: $weightDraft.text)
+                            .accessibilityLabel("Weight in \(weightDraft.input.unit.spokenName)")
                             .keyboardType(.decimalPad)
                             .focused($isWeightFieldFocused)
                             .font(.title2.bold())
@@ -917,6 +917,7 @@ struct EditLoggedSetSheet: View {
                                     .background(Color.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 14))
                             }
                             .buttonStyle(.plain)
+                            .buttonRepeatBehavior(.enabled)
                             .accessibilityLabel("Decrease reps")
 
                             Text("\(reps)")
@@ -933,6 +934,7 @@ struct EditLoggedSetSheet: View {
                                     .background(Color.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 14))
                             }
                             .buttonStyle(.plain)
+                            .buttonRepeatBehavior(.enabled)
                             .accessibilityLabel("Increase reps")
                         }
                     }

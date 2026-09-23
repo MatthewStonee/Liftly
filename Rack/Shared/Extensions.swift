@@ -11,6 +11,9 @@ enum WeightUnit: String {
 
     var symbol: String { rawValue }
 
+    /// The unit's name for VoiceOver, which would read the symbol "lbs" letter by letter.
+    var spokenName: String { self == .kg ? "kilograms" : "pounds" }
+
     /// Convert a value stored in lbs to the display unit.
     func display(_ lbs: Double) -> Double {
         self == .kg ? lbs * 0.453592 : lbs
@@ -43,6 +46,16 @@ extension Double {
         f.maximumFractionDigits = 2
         return f
     }()
+}
+
+extension LoggedSet {
+    /// How VoiceOver reads a set, such as "Sep 12, 225 pounds, 5 reps".
+    func spokenSummary(unit: WeightUnit, dateStyle: Date.FormatStyle) -> String {
+        let weightText = weight == 0
+            ? "Bodyweight"
+            : "\(weight.formattedWeight(unit: unit)) \(unit.spokenName)"
+        return "\(completedAt.formatted(dateStyle)), \(weightText), \(reps) \(reps == 1 ? "rep" : "reps")"
+    }
 }
 
 extension PlannedExercise {

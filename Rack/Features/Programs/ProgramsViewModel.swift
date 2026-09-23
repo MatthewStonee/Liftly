@@ -72,6 +72,27 @@ final class ProgramsViewModel {
     }
 }
 
+/// The day and exercise counts a program shows. Items waiting out their Undo window
+/// are left out, so the numbers match the rows on screen.
+struct ProgramCounts: Equatable {
+    let days: Int
+    let exercises: Int
+
+    init(_ program: Program, hiding coordinator: DeletionCoordinator?) {
+        let visibleDays = program.workoutsList.filter { coordinator?.isPending($0) != true }
+        days = visibleDays.count
+        exercises = visibleDays.reduce(0) { total, day in
+            total + day.plannedExercisesList.filter { coordinator?.isPending($0) != true }.count
+        }
+    }
+
+    var daysText: String { "\(days) \(days == 1 ? "Day" : "Days")" }
+    var exercisesText: String { "\(exercises) \(exercises == 1 ? "Exercise" : "Exercises")" }
+
+    /// For VoiceOver labels, such as "3 days, 1 exercise".
+    var spokenSummary: String { "\(daysText.lowercased()), \(exercisesText.lowercased())" }
+}
+
 /// How the Programs list arranges its programs: the active program leads, and every
 /// other program is listed below it. More than one program can be active after iCloud
 /// merges activations made on two devices; the extra ones stay in the list.

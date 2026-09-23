@@ -389,6 +389,7 @@ struct EditPlannedExerciseView: View {
                             .font(.subheadline.bold())
                             .foregroundStyle(.secondary)
                         TextField("Optional", text: $weightDraft.text)
+                            .accessibilityLabel("Target weight in \(weightDraft.input.unit.spokenName)")
                             .keyboardType(.decimalPad)
                             .focused($isWeightFieldFocused)
                             .padding(14)

@@ -123,6 +123,7 @@ struct SettingsView: View {
                     Image(systemName: "checkmark.circle.fill")
                         .font(.title3)
                         .foregroundStyle(.blue)
+                        .accessibilityHidden(true)
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -142,5 +143,7 @@ struct SettingsView: View {
             .foregroundStyle(.primary)
         }
         .buttonStyle(.plain)
+        // The checkmark and highlight are visual only; VoiceOver hears "Selected".
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
     }
 }

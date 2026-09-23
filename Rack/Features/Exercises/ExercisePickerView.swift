@@ -169,7 +169,7 @@ private struct ExercisePickerResultsView: View {
                     } label: {
                         ExerciseRow(exercise: exercise)
                     }
-                    .accessibilityLabel(exercise.name)
+                    .accessibilityLabel("\(exercise.name), \(exercise.muscleGroup.rawValue), \(exercise.equipment.rawValue)")
                     .listRowBackground(Color.clear)
                     .listRowSeparator(.hidden)
                 }
