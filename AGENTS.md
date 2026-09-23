@@ -53,12 +53,13 @@ Check `Rack/Shared/` and the feature's own folder before building a new componen
 Ask before adding a test target.
 - Unit tests live in `RackTests/` (Swift Testing, `@testable import Rack`) and belong to the `LiftlyUnitTests` target by explicit membership, so a new file needs a project change. Prefer adding suites to an existing file. `Rack/` is a synchronized folder, so new app files join the app target automatically.
 - UI tests live in `RackUITests/` (XCTest); see its README.
+- CI (`.github/workflows/ci.yml`) builds the `Rack` scheme and runs both test targets on every pull request and push to `main`, on GitHub's `xcode-27` runner with the iPhone 18 Pro simulator. A failing test is retried up to twice. When the project moves to a new Xcode or simulator, update the workflow's `runs-on` and destination to match.
 - Debug launch arguments:
   - `-LiftlyDebugStoreOpenFailures <n>`, `-LiftlyDebugSaveFailures <n>`, and `-LiftlyDebugHistoryLoadFailures <n>` fail the first `n` store opens, saves, or history page loads.
   - `-LiftlyUITestFixture <reorder|history|firstRun> <id>` opens an isolated local-only store (no iCloud) seeded for that scenario; `firstRun` has only the exercise library. `-LiftlyUITestUndoSeconds <4–30>` stretches the Undo window for UI automation.
 
 ## Build Configuration
-- Build and test with XcodeBuildMCP without asking; never run raw `xcodebuild` shell commands.
+- Build and test locally with XcodeBuildMCP without asking; never run raw `xcodebuild` shell commands. Only the CI workflow calls `xcodebuild` directly.
 - Scheme: `Rack`. Target simulator: iPhone 18 Pro (iOS 27.x).
 - iPhone-only and portrait-only (no iPad, no Mac Catalyst, no landscape); layouts can assume a phone-sized portrait viewport.
 

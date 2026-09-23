@@ -46,6 +46,6 @@ RackUITests/            # UI integration tests (XCTest)
 3. Select the `Rack` scheme and an iPhone simulator
 4. Build and run (`Cmd+R`)
 
-Run the unit and UI tests with **Product ▸ Test** (`Cmd+U`) on the iPhone 18 Pro (iOS 27) simulator. See [RackUITests/README.md](RackUITests/README.md) for the UI-test fixtures.
+Run the unit and UI tests with **Product ▸ Test** (`Cmd+U`) on the iPhone 18 Pro (iOS 27) simulator. See [RackUITests/README.md](RackUITests/README.md) for the UI-test fixtures. GitHub Actions runs the same tests on every pull request and push to `main` ([.github/workflows/ci.yml](.github/workflows/ci.yml)).
 
 No dependencies to install — the project uses only Apple frameworks.

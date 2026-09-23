@@ -1,0 +1,69 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  # A new push to a pull request replaces its running check; runs on main always finish.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+defaults:
+  run:
+    # An explicit bash shell runs with pipefail, so a failing xcodebuild fails its step
+    # even though its output is piped through xcbeautify.
+    shell: bash
+
+jobs:
+  test:
+    name: Build and test
+    # The app targets iOS 27, and Xcode 27 is only on this image (public preview);
+    # macos-26 stops at Xcode 26.
+    runs-on: xcode-27
+    timeout-minutes: 30
+    env:
+      DESTINATION: platform=iOS Simulator,name=iPhone 18 Pro,OS=latest
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Show Xcode version
+        run: xcodebuild -version
+
+      - name: Build
+        run: |
+          xcodebuild build-for-testing \
+            -project Rack.xcodeproj \
+            -scheme Rack \
+            -destination "$DESTINATION" \
+            -derivedDataPath build/DerivedData \
+            | xcbeautify --renderer github-actions
+
+      # Runs both test targets on one simulator. A failing test gets up to two
+      # retries, so a flaky UI test doesn't fail the check; retries still show in the log.
+      - name: Test
+        run: |
+          xcodebuild test-without-building \
+            -project Rack.xcodeproj \
+            -scheme Rack \
+            -destination "$DESTINATION" \
+            -derivedDataPath build/DerivedData \
+            -resultBundlePath build/TestResults.xcresult \
+            -parallel-testing-enabled NO \
+            -retry-tests-on-failure \
+            -test-iterations 3 \
+            | xcbeautify --renderer github-actions
+
+      - name: Upload test results
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: TestResults
+          path: build/TestResults.xcresult
+          retention-days: 7
