@@ -59,6 +59,9 @@ final class ProgressViewModel {
     var selectedExercise: Exercise?
     var timeRange: TimeRange = .threeMonths
     var overview = ProgressOverview()
+    /// Whether an overview load has finished, so Progress doesn't show an empty state
+    /// while its first load is still running.
+    private(set) var hasLoadedOverview = false
     var exerciseMetrics = ExerciseProgressMetrics()
     @ObservationIgnored private var allSetsAscending: [LoggedSet] = []
     @ObservationIgnored private var isShowingExerciseDetail = false
@@ -111,6 +114,7 @@ final class ProgressViewModel {
     ) async {
         guard let activeProgram else {
             overview = ProgressOverview()
+            hasLoadedOverview = true
             return
         }
 
@@ -132,6 +136,7 @@ final class ProgressViewModel {
 
         guard !programExercises.isEmpty else {
             overview = ProgressOverview()
+            hasLoadedOverview = true
             return
         }
 
@@ -196,8 +201,14 @@ final class ProgressViewModel {
                 summariesByExerciseID: result.summaries,
                 weeklyVolume: result.weeklyVolume
             )
+            hasLoadedOverview = true
         } catch {
             Self.logger.error("Failed to refresh progress overview: \(String(describing: error), privacy: .public)")
+            // Keep an earlier overview's stats; a first load still lists the exercises.
+            if !hasLoadedOverview {
+                overview = ProgressOverview(programExercises: programExercises)
+                hasLoadedOverview = true
+            }
         }
     }
 

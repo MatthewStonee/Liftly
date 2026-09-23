@@ -123,13 +123,6 @@ struct ProgramDetailView: View {
                     }
 
                     if !isReorderMode {
-                        if !program.isActive {
-                            Button {
-                                setProgramActive()
-                            } label: {
-                                Label("Set as Active", systemImage: "checkmark.circle")
-                            }
-                        }
                         Button {
                             showingEditProgram = true
                         } label: {
@@ -195,9 +188,34 @@ struct ProgramDetailView: View {
                 }
             }
             .padding(.top, 4)
+
+            activeStatus
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.top, 4)
+    }
+
+    /// Progress tracks only the active program, so activating one is a visible action.
+    @ViewBuilder
+    private var activeStatus: some View {
+        if program.isActive {
+            Label("Active Program", systemImage: "checkmark.circle.fill")
+                .font(.subheadline.bold())
+                .foregroundStyle(.blue)
+                .frame(minHeight: 44)
+        } else {
+            Button {
+                setProgramActive()
+            } label: {
+                Label("Set as Active", systemImage: "checkmark.circle")
+                    .font(.subheadline.bold())
+            }
+            .buttonStyle(.glass)
+            .controlSize(.large)
+            .disabled(isReorderMode || showingAddWorkout)
+            .accessibilityHint("Tracks this program's exercises on the Progress tab")
+            .accessibilityIdentifier("program.setActive")
+        }
     }
 
     private var viewModePicker: some View {

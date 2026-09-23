@@ -99,11 +99,13 @@ private struct UndoToastModifier: ViewModifier {
                 )
                 .id(generation)
                 .transition(.move(edge: .bottom).combined(with: .opacity))
-                .sensoryFeedback(.impact, trigger: isPresented)
                 .zIndex(100)
             }
         }
         .animation(reduceMotion ? nil : .spring(response: 0.35, dampingFraction: 0.8), value: isPresented)
+        // Lives on the ZStack, which outlasts the banner: feedback only plays when the
+        // trigger changes while the modifier is in the hierarchy.
+        .sensoryFeedback(.impact, trigger: isPresented) { _, isShowing in isShowing }
     }
 }
 

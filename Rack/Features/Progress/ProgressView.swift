@@ -32,14 +32,24 @@ struct ProgressTabView: View {
     @State private var path: [ProgressRoute] = []
     @State private var overviewRefreshTask: Task<Void, Never>?
     @AppStorage("weightUnit") private var weightUnit: WeightUnit = .lbs
+    private let onShowPrograms: () -> Void
+
+    /// - Parameter onShowPrograms: Switches to the Programs tab, where a program can be
+    ///   activated or given exercises.
+    init(onShowPrograms: @escaping () -> Void = {}) {
+        self.onShowPrograms = onShowPrograms
+    }
 
     var body: some View {
         NavigationStack(path: $path) {
             Group {
-                if viewModel.overview.programExercises.isEmpty {
-                    emptyState
-                } else {
+                if !viewModel.overview.programExercises.isEmpty {
                     exerciseList
+                } else if viewModel.hasLoadedOverview {
+                    emptyState(for: overviewSelection.program)
+                } else {
+                    // Keeps `onAppear` attached while the first overview loads.
+                    Color.clear
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -66,7 +76,12 @@ struct ProgressTabView: View {
                     scheduleOverviewRefresh()
                 }
             }
-            .onReceive(NotificationCenter.default.publisher(for: ModelContext.didSave)) { _ in
+            // Background contexts (startup maintenance) post `didSave` on their own
+            // thread, so hop to the main thread before touching view state.
+            .onReceive(
+                NotificationCenter.default.publisher(for: ModelContext.didSave)
+                    .receive(on: DispatchQueue.main)
+            ) { _ in
                 scheduleOverviewRefresh()
             }
             .onDisappear {
@@ -186,22 +201,42 @@ struct ProgressTabView: View {
         }
     }
 
-    private var emptyState: some View {
+    /// Progress lists the active program's exercises, so each empty state says which of
+    /// those two steps is missing and leads back to Programs to finish it.
+    private func emptyState(for activeProgram: Program?) -> some View {
         VStack(spacing: 20) {
-            Image(systemName: "chart.line.uptrend.xyaxis")
+            Image(systemName: activeProgram == nil ? "chart.line.uptrend.xyaxis" : "dumbbell")
                 .font(.system(size: 64))
                 .symbolRenderingMode(.hierarchical)
                 .foregroundStyle(.blue)
+                .accessibilityHidden(true)
             VStack(spacing: 8) {
-                Text("No Progress Data Yet")
+                Text(activeProgram == nil ? "No Active Program" : "No Exercises Yet")
                     .font(.title2.bold())
-                Text("Exercises from your active program will appear here once you start logging sets.")
+                Text(emptyStateMessage(for: activeProgram))
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
             }
+            Button {
+                onShowPrograms()
+            } label: {
+                Text("Go to Programs")
+                    .fontWeight(.semibold)
+                    .frame(minWidth: 160, minHeight: 28)
+            }
+            .buttonStyle(.glassProminent)
+            .controlSize(.large)
+            .accessibilityIdentifier("progress.showPrograms")
         }
         .padding(32)
+    }
+
+    private func emptyStateMessage(for activeProgram: Program?) -> String {
+        if let activeProgram {
+            return "Add exercises to a workout day in \(activeProgram.name) to track them and log sets here."
+        }
+        return "Set a program as active to track its exercises and log sets here."
     }
 }
 

@@ -14,19 +14,13 @@ struct ProgramsView: View {
 
     var body: some View {
         let visiblePrograms = programs.filter { deletionCoordinator?.isPending($0) != true }
-        let activeProgram = visiblePrograms.first { $0.isActive }
-        let otherPrograms = visiblePrograms.filter { !$0.isActive }
 
         NavigationStack {
             Group {
                 if visiblePrograms.isEmpty {
                     emptyState
                 } else {
-                    programList(
-                        activeProgram: activeProgram,
-                        visiblePrograms: visiblePrograms,
-                        otherPrograms: otherPrograms
-                    )
+                    programList(ProgramListSections(programs: visiblePrograms))
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -84,14 +78,8 @@ struct ProgramsView: View {
         .ignoresSafeArea()
     }
 
-    private func programList(
-        activeProgram: Program?,
-        visiblePrograms: [Program],
-        otherPrograms: [Program]
-    ) -> some View {
-        let listedPrograms = activeProgram == nil ? visiblePrograms : otherPrograms
-
-        return ScrollView {
+    private func programList(_ sections: ProgramListSections) -> some View {
+        ScrollView {
             VStack(alignment: .leading, spacing: 28) {
                 Text("Select your path to performance")
                     .font(.footnote)
@@ -99,13 +87,13 @@ struct ProgramsView: View {
                     .padding(.horizontal, 20)
                     .padding(.top, 4)
 
-                if let active = activeProgram {
+                if let active = sections.active {
                     activeProgramHero(active)
                 }
 
-                if !otherPrograms.isEmpty || activeProgram == nil {
+                if !sections.others.isEmpty {
                     VStack(alignment: .leading, spacing: 12) {
-                        if activeProgram != nil {
+                        if sections.active != nil {
                             Text("Other Programs")
                                 .font(.title3.bold())
                                 .foregroundStyle(.white)
@@ -114,7 +102,7 @@ struct ProgramsView: View {
 
                         GlassEffectContainer(spacing: 10) {
                             LazyVStack(spacing: 10) {
-                                ForEach(listedPrograms) { program in
+                                ForEach(sections.others) { program in
                                     ProgramRow(program: program) {
                                         activate(program)
                                     }

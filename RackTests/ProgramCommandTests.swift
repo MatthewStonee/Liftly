@@ -39,6 +39,40 @@ struct ProgramCommandTests {
         #expect(saves.saveAttempts == 0)
     }
 
+    @Test func theFirstProgramBecomesActiveAndLaterOnesDoNot() throws {
+        saves.isFailing = false
+        let viewModel = ProgramsViewModel(commandRunner: saves.runner)
+
+        let first = try viewModel.createProgram(name: "First", description: "", context: context).get()
+        let second = try viewModel.createProgram(name: "Second", description: "", context: context).get()
+
+        #expect(first.isActive)
+        #expect(!second.isActive)
+        #expect(try TestStore.savedModels(Program.self, in: container).filter(\.isActive).map(\.name) == ["First"])
+    }
+
+    @Test func programListKeepsEveryActiveProgramVisible() throws {
+        let older = try Fixtures.savedProgram(in: context, name: "Older", isActive: true)
+        let newer = try Fixtures.savedProgram(in: context, name: "Newer", isActive: true)
+        let inactive = try Fixtures.savedProgram(in: context, name: "Inactive")
+
+        // Newest first, like ProgramsView's query. Two devices can each activate one.
+        let sections = ProgramListSections(programs: [inactive, newer, older])
+
+        #expect(sections.active?.id == newer.id)
+        #expect(sections.others.map(\.name) == ["Inactive", "Older"])
+    }
+
+    @Test func programListWithoutAnActiveProgramListsEveryProgram() throws {
+        let first = try Fixtures.savedProgram(in: context, name: "First")
+        let second = try Fixtures.savedProgram(in: context, name: "Second")
+
+        let sections = ProgramListSections(programs: [second, first])
+
+        #expect(sections.active == nil)
+        #expect(sections.others.map(\.name) == ["Second", "First"])
+    }
+
     @Test func failedProgramEditRestoresTheProgram() throws {
         let program = try Fixtures.savedProgram(in: context, name: "Strength")
         let viewModel = ProgramsViewModel(commandRunner: saves.runner)
