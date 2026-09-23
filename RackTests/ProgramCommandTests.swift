@@ -105,14 +105,14 @@ struct ProgramCommandTests {
 
     @Test func failedProgramDeletionKeepsTheProgramAndItsWorkouts() throws {
         let program = try Fixtures.savedProgram(in: context, workoutNames: ["Push", "Pull"])
-        let viewModel = ProgramsViewModel(commandRunner: saves.runner)
 
-        #expect(viewModel.deleteProgram(program, context: context).isRolledBackSaveFailure)
+        try deleteAfterUndoWindow { $0.request(program) }
+        #expect(saves.saveAttempts == 1)
         #expect(!program.isDeleted)
         #expect(try context.fetch(FetchDescriptor<WorkoutTemplate>()).count == 2)
 
         saves.isFailing = false
-        #expect(viewModel.deleteProgram(program, context: context).failure == nil)
+        try deleteAfterUndoWindow { $0.request(program) }
         #expect(try TestStore.savedModels(Program.self, in: container).isEmpty)
         #expect(try TestStore.savedModels(WorkoutTemplate.self, in: container).isEmpty)
     }
@@ -157,15 +157,15 @@ struct ProgramCommandTests {
     @Test func failedWorkoutDeletionKeepsTheDayInItsProgram() throws {
         let program = try Fixtures.savedProgram(in: context, workoutNames: ["Push", "Pull"])
         let workout = try #require(program.sortedWorkouts.first)
-        let viewModel = ProgramDetailViewModel(commandRunner: saves.runner)
 
-        #expect(viewModel.deleteWorkout(workout, context: context).isRolledBackSaveFailure)
+        try deleteAfterUndoWindow { $0.request(workout) }
+        #expect(saves.saveAttempts == 1)
         #expect(!workout.isDeleted)
         #expect(workout.program?.id == program.id)
         #expect(program.workoutsList.count == 2)
 
         saves.isFailing = false
-        #expect(viewModel.deleteWorkout(workout, context: context).failure == nil)
+        try deleteAfterUndoWindow { $0.request(workout) }
         #expect(try TestStore.savedModels(WorkoutTemplate.self, in: container).map(\.name) == ["Pull"])
     }
 
@@ -256,14 +256,14 @@ struct ProgramCommandTests {
     @Test func failedPlannedExerciseDeletionKeepsItInTheWorkout() throws {
         let workout = try savedWorkout()
         let planned = try savedPlannedExercise(in: workout, name: "Bench Press", orderIndex: 0)
-        let viewModel = WorkoutTemplateDetailViewModel(commandRunner: saves.runner)
 
-        #expect(viewModel.deletePlannedExercise(planned, context: context).isRolledBackSaveFailure)
+        try deleteAfterUndoWindow { $0.request(planned) }
+        #expect(saves.saveAttempts == 1)
         #expect(!planned.isDeleted)
         #expect(planned.workoutTemplate?.id == workout.id)
 
         saves.isFailing = false
-        #expect(viewModel.deletePlannedExercise(planned, context: context).failure == nil)
+        try deleteAfterUndoWindow { $0.request(planned) }
         #expect(try TestStore.savedModels(PlannedExercise.self, in: container).isEmpty)
     }
 
@@ -289,6 +289,18 @@ struct ProgramCommandTests {
     }
 
     // MARK: Helpers
+
+    /// Deletes the way the app does: a batch request whose Undo window runs out.
+    private func deleteAfterUndoWindow(_ request: (DeletionCoordinator) -> Void) throws {
+        let batch = DeletionCoordinator(
+            context: context,
+            alertCenter: PersistenceAlertCenter(),
+            commandRunner: saves.runner,
+            sleep: { _ in try await Task.sleep(for: .seconds(3600)) }
+        )
+        request(batch)
+        batch.expire(generation: try #require(batch.generation))
+    }
 
     private func savedWorkout(name: String = "Push") throws -> WorkoutTemplate {
         let program = try Fixtures.savedProgram(in: context, workoutNames: [name])

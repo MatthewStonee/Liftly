@@ -360,7 +360,9 @@ struct P2RegressionTests {
         #expect(added.orderIndex == 3)
 
         let middle = program.sortedWorkouts[1]
-        #expect(model.deleteWorkout(middle, context: context).failure == nil)
+        let batch = coordinator()
+        batch.request(middle)
+        batch.expire(generation: try #require(batch.generation))
         #expect(program.sortedWorkouts.map(\.orderIndex) == [0, 1, 2])
         let afterDelete = try model.addWorkout(named: "Five", to: program, context: context).get()
         #expect(afterDelete.orderIndex == 3)
@@ -895,7 +897,9 @@ struct ExerciseHistoryViewModelTests {
         #expect(model.rows.map(\.id) == [old.id])
         #expect(model.rows.first?.reps == 6)
 
-        #expect(progress.deleteSet(old, context: context).failure == nil)
+        let batch = pendingDeletionCoordinator(for: context)
+        batch.request(old)
+        batch.expire(generation: try #require(batch.generation))
         model.refresh(exerciseID: exercise.id, context: context, excluding: [])
         #expect(model.rows.isEmpty)
         #expect(!model.hasAnyHistory)

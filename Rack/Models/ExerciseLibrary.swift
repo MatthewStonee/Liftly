@@ -180,8 +180,8 @@ enum ExerciseLibrary {
         return didChange
     }
 
-    fileprivate nonisolated static func markSeeded() {
-        UserDefaults.standard.set(true, forKey: seededKey)
+    fileprivate nonisolated static func markSeeded(in defaults: UserDefaults) {
+        defaults.set(true, forKey: seededKey)
     }
 
     nonisolated static func normalizedName(_ name: String) -> String {
@@ -361,7 +361,10 @@ actor ExerciseLibraryMaintenanceActor {
         category: "StartupMaintenance"
     )
 
-    func performMaintenance() -> Bool {
+    /// Merges duplicate library exercises, restores missing ones, and repairs invalid
+    /// rep targets, in one save.
+    /// - Parameter defaults: Where the seeded flag is recorded. Tests pass their own.
+    func performMaintenance(defaults: UserDefaults = .standard) -> Bool {
         do {
             let didReconcileExercises = try ExerciseLibrary.reconcile(context: modelContext)
             let didNormalizeRepTargets = try ExerciseLibrary.normalizeInvalidRepTargets(context: modelContext)
@@ -371,7 +374,7 @@ actor ExerciseLibraryMaintenanceActor {
                 Self.logger.notice("Completed deferred exercise-library and rep-target maintenance.")
             }
 
-            ExerciseLibrary.markSeeded()
+            ExerciseLibrary.markSeeded(in: defaults)
             return true
         } catch {
             modelContext.rollback()

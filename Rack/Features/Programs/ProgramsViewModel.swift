@@ -61,15 +61,6 @@ final class ProgramsViewModel {
             try ProgramActivation.activate(program, in: context)
         }
     }
-
-    /// Commits a program deletion once its undo window has passed.
-    func deleteProgram(_ program: Program, context: ModelContext) -> Result<Void, PersistenceCommandError> {
-        guard !program.isDeleted else { return .success(()) }
-
-        return commandRunner.perform(in: context) { context in
-            context.delete(program)
-        }
-    }
 }
 
 /// The day and exercise counts a program shows. Items waiting out their Undo window
