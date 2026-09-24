@@ -155,7 +155,7 @@ struct ProgressViewModelCommandTests {
                                     completedAt: set.completedAt, context: context).failure == nil)
         #expect(saves.saveAttempts == savesBeforeNoOp)
         #expect(events.count == 2)
-        #expect(viewModel.deleteSet(set, context: context).failure == nil)
+        try deleteAfterUndoWindow(set)
         #expect(events.count == 3)
     }
 
@@ -252,7 +252,8 @@ struct ProgressViewModelCommandTests {
         let runnerUp = try savedSet(exercise, reps: 5, weight: 100, daysAgo: 1, isRecord: false)
 
         saves.isFailing = true
-        #expect(viewModel.deleteSet(record, context: context).isRolledBackSaveFailure)
+        try deleteAfterUndoWindow(record)
+        #expect(saves.saveAttempts == 1)
         #expect(!record.isDeleted)
         #expect(record.isPersonalRecord)
         #expect(!runnerUp.isPersonalRecord)
@@ -261,7 +262,7 @@ struct ProgressViewModelCommandTests {
         #expect(viewModel.exerciseMetrics.personalRecord?.id == record.id)
 
         saves.isFailing = false
-        #expect(viewModel.deleteSet(record, context: context).failure == nil)
+        try deleteAfterUndoWindow(record)
         #expect(runnerUp.isPersonalRecord)
         #expect(try TestStore.savedModels(LoggedSet.self, in: container).map(\.id) == [runnerUp.id])
         #expect(try savedRecordIDs() == [runnerUp.id])
@@ -281,9 +282,10 @@ struct ProgressViewModelCommandTests {
         saves.isFailing = true
         #expect(model.logSet(for: exercise, reps: 5, weight: 120, completedAt: .now, context: context).failure != nil)
         #expect(model.updateSet(set, reps: 6, weight: 110, completedAt: set.completedAt, context: context).failure != nil)
-        #expect(model.deleteSet(set, context: context).failure != nil)
+        try deleteAfterUndoWindow(set)
         saves.isFailing = false
-        #expect(model.deleteSet(set, context: context).failure == nil)
+        try deleteAfterUndoWindow(set)
+        #expect(try TestStore.savedModels(LoggedSet.self, in: container).isEmpty)
         #expect(metricsLoads.count == 0)
         #expect(model.exerciseMetrics.latestSet == nil)
 
@@ -379,6 +381,18 @@ struct ProgressViewModelCommandTests {
     }
 
     // MARK: Helpers
+
+    /// Deletes the way the app does: a batch request whose Undo window runs out.
+    private func deleteAfterUndoWindow(_ set: LoggedSet) throws {
+        let batch = DeletionCoordinator(
+            context: context,
+            alertCenter: PersistenceAlertCenter(),
+            commandRunner: saves.runner,
+            sleep: { _ in try await Task.sleep(for: .seconds(3600)) }
+        )
+        batch.request(set)
+        batch.expire(generation: try #require(batch.generation))
+    }
 
     private func savedSet(
         _ exercise: Exercise,

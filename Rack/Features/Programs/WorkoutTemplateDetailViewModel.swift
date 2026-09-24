@@ -107,19 +107,4 @@ final class WorkoutTemplateDetailViewModel {
             }
         }
     }
-
-    /// Commits a planned exercise deletion once its undo window has passed.
-    func deletePlannedExercise(
-        _ planned: PlannedExercise,
-        context: ModelContext
-    ) -> Result<Void, PersistenceCommandError> {
-        guard !planned.isDeleted else { return .success(()) }
-
-        return commandRunner.perform(in: context) { context in
-            let siblings = planned.workoutTemplate?.plannedExercisesList.filter { $0.id != planned.id } ?? []
-            planned.workoutTemplate = nil
-            context.delete(planned)
-            SiblingOrder.normalize(siblings)
-        }
-    }
 }

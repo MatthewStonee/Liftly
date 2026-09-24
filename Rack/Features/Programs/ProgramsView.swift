@@ -1,45 +1,56 @@
 import SwiftUI
 import SwiftData
 
+/// Screens pushed onto the Programs tab's navigation stack.
+///
+/// Like `ProgressRoute`, every push is value-based and resolved by the stack root's
+/// `navigationDestination(for:)`. Destinations declared inside pushed screens can lock
+/// `NavigationStack` into an update loop on iOS 27.
+enum ProgramsRoute: Hashable {
+    case program(Program)
+    case workout(WorkoutTemplate)
+}
+
 struct ProgramsView: View {
     @Environment(\.modelContext) private var context
     @Query(sort: \Program.createdAt, order: .reverse) private var programs: [Program]
     @State private var viewModel = ProgramsViewModel()
     @State private var showingCreateProgram = false
     @State private var showingSettings = false
-    @State private var selectedProgram: Program?
+    @State private var path: [ProgramsRoute] = []
     @State private var persistenceAlert: PersistenceAlert?
     @State private var showingPersistenceAlert = false
     @Environment(DeletionCoordinator.self) private var deletionCoordinator: DeletionCoordinator?
 
     var body: some View {
         let visiblePrograms = programs.filter { deletionCoordinator?.isPending($0) != true }
-        let activeProgram = visiblePrograms.first { $0.isActive }
-        let otherPrograms = visiblePrograms.filter { !$0.isActive }
 
-        NavigationStack {
+        NavigationStack(path: $path) {
             Group {
                 if visiblePrograms.isEmpty {
                     emptyState
                 } else {
-                    programList(
-                        activeProgram: activeProgram,
-                        visiblePrograms: visiblePrograms,
-                        otherPrograms: otherPrograms
-                    )
+                    programList(ProgramListSections(programs: visiblePrograms))
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .background { backgroundGradient }
+            .appBackground()
             .navigationTitle("Programs")
             .titleDisplayMode(.large)
-            .navigationDestination(item: $selectedProgram) { program in
-                ProgramDetailView(program: program, onDeleteProgram: {
-                    deletionCoordinator?.request(program)
-                })
+            .navigationDestination(for: ProgramsRoute.self) { route in
+                switch route {
+                case .program(let program):
+                    ProgramDetailView(program: program, onDeleteProgram: {
+                        deletionCoordinator?.request(program)
+                    })
+                case .workout(let workout):
+                    WorkoutTemplateDetailView(workout: workout, onDeleteWorkout: {
+                        deletionCoordinator?.request(workout)
+                    })
+                }
             }
             .toolbar {
-                ToolbarItem(placement: .navigationBarLeading) {
+                ToolbarItem(placement: .topBarLeading) {
                     Button {
                         showingSettings = true
                     } label: {
@@ -75,23 +86,8 @@ struct ProgramsView: View {
         }
     }
 
-    private var backgroundGradient: some View {
-        LinearGradient(
-            colors: [Color(red: 0.04, green: 0.06, blue: 0.18), Color.black],
-            startPoint: .top,
-            endPoint: .bottom
-        )
-        .ignoresSafeArea()
-    }
-
-    private func programList(
-        activeProgram: Program?,
-        visiblePrograms: [Program],
-        otherPrograms: [Program]
-    ) -> some View {
-        let listedPrograms = activeProgram == nil ? visiblePrograms : otherPrograms
-
-        return ScrollView {
+    private func programList(_ sections: ProgramListSections) -> some View {
+        ScrollView {
             VStack(alignment: .leading, spacing: 28) {
                 Text("Select your path to performance")
                     .font(.footnote)
@@ -99,13 +95,13 @@ struct ProgramsView: View {
                     .padding(.horizontal, 20)
                     .padding(.top, 4)
 
-                if let active = activeProgram {
+                if let active = sections.active {
                     activeProgramHero(active)
                 }
 
-                if !otherPrograms.isEmpty || activeProgram == nil {
+                if !sections.others.isEmpty {
                     VStack(alignment: .leading, spacing: 12) {
-                        if activeProgram != nil {
+                        if sections.active != nil {
                             Text("Other Programs")
                                 .font(.title3.bold())
                                 .foregroundStyle(.white)
@@ -114,17 +110,15 @@ struct ProgramsView: View {
 
                         GlassEffectContainer(spacing: 10) {
                             LazyVStack(spacing: 10) {
-                                ForEach(listedPrograms) { program in
-                                    ProgramRow(program: program) {
-                                        activate(program)
+                                ForEach(sections.others) { program in
+                                    let counts = ProgramCounts(program, hiding: deletionCoordinator)
+                                    NavigationLink(value: ProgramsRoute.program(program)) {
+                                        ProgramRow(program: program, counts: counts) {
+                                            activate(program)
+                                        }
                                     }
-                                    .contentShape(Rectangle())
-                                    .onTapGesture {
-                                        selectedProgram = program
-                                    }
-                                    .accessibilityElement(children: .combine)
-                                    .accessibilityLabel(program.name)
-                                    .accessibilityAddTraits(.isButton)
+                                    .buttonStyle(.plain)
+                                    .accessibilityLabel("\(program.name), \(counts.spokenSummary)")
                                     .accessibilityIdentifier("program.row.\(program.name)")
                                     .padding(.horizontal, 16)
                                 }
@@ -140,80 +134,77 @@ struct ProgramsView: View {
 
     @ViewBuilder
     private func activeProgramHero(_ program: Program) -> some View {
-        let workouts = program.workoutsList
-        let workoutCount = workouts.count
-        let exerciseCount = workouts.reduce(0) { $0 + $1.plannedExercisesList.count }
+        let counts = ProgramCounts(program, hiding: deletionCoordinator)
 
-        ZStack(alignment: .bottomLeading) {
-            RoundedRectangle(cornerRadius: 20)
-                .fill(Color(red: 0.08, green: 0.10, blue: 0.22))
-                .overlay(
-                    LinearGradient(
-                        colors: [.blue.opacity(0.18), .clear],
-                        startPoint: .topLeading,
-                        endPoint: .bottomTrailing
+        NavigationLink(value: ProgramsRoute.program(program)) {
+            ZStack(alignment: .bottomLeading) {
+                RoundedRectangle(cornerRadius: 20)
+                    .fill(Color(red: 0.08, green: 0.10, blue: 0.22))
+                    .overlay(
+                        LinearGradient(
+                            colors: [.blue.opacity(0.18), .clear],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        )
+                        .clipShape(RoundedRectangle(cornerRadius: 20))
                     )
-                    .clipShape(RoundedRectangle(cornerRadius: 20))
-                )
-                .overlay(alignment: .topTrailing) {
-                    Image(systemName: "dumbbell.fill")
-                        .font(.system(size: 32, weight: .semibold))
-                        .foregroundStyle(
-                            LinearGradient(
-                                colors: [.white.opacity(0.24), .blue.opacity(0.16)],
-                                startPoint: .topLeading,
-                                endPoint: .bottomTrailing
+                    .overlay(alignment: .topTrailing) {
+                        Image(systemName: "dumbbell.fill")
+                            .font(.system(size: 32, weight: .semibold))
+                            .foregroundStyle(
+                                LinearGradient(
+                                    colors: [.white.opacity(0.24), .blue.opacity(0.16)],
+                                    startPoint: .topLeading,
+                                    endPoint: .bottomTrailing
+                                )
                             )
-                        )
-                        .shadow(color: .blue.opacity(0.18), radius: 10, x: 0, y: 0)
-                        .shadow(color: .white.opacity(0.08), radius: 2, x: 0, y: 0)
-                        .padding(.top, 22)
-                        .padding(.trailing, 22)
-                        .allowsHitTesting(false)
-                        .accessibilityHidden(true)
-                }
+                            .shadow(color: .blue.opacity(0.18), radius: 10, x: 0, y: 0)
+                            .shadow(color: .white.opacity(0.08), radius: 2, x: 0, y: 0)
+                            .padding(.top, 22)
+                            .padding(.trailing, 22)
+                            .allowsHitTesting(false)
+                            .accessibilityHidden(true)
+                    }
 
-            VStack(alignment: .leading, spacing: 14) {
-                Text("CURRENTLY ACTIVE")
-                    .font(.caption2.bold())
-                    .tracking(1.5)
-                    .foregroundStyle(.blue)
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 5)
-                    .background(.blue.opacity(0.18), in: Capsule())
-                    .overlay(Capsule().strokeBorder(.blue.opacity(0.35), lineWidth: 0.5))
+                VStack(alignment: .leading, spacing: 14) {
+                    Text("CURRENTLY ACTIVE")
+                        .font(.caption2.bold())
+                        .tracking(1.5)
+                        .foregroundStyle(.blue)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 5)
+                        .background(.blue.opacity(0.18), in: Capsule())
+                        .overlay(Capsule().strokeBorder(.blue.opacity(0.35), lineWidth: 0.5))
 
-                Text(program.name)
-                    .font(.system(size: 32, weight: .black))
-                    .foregroundStyle(.white)
-                    .tracking(-0.5)
-                    .lineLimit(2)
+                    Text(program.name)
+                        .font(.system(size: 32, weight: .black))
+                        .foregroundStyle(.white)
+                        .tracking(-0.5)
+                        .lineLimit(2)
+                        .multilineTextAlignment(.leading)
 
-                GlassEffectContainer(spacing: 12) {
-                    HStack(spacing: 12) {
-                        StatBadge(
-                            value: "\(workoutCount)",
-                            label: "Workouts",
-                            style: .hero
-                        )
-                        StatBadge(
-                            value: "\(exerciseCount)",
-                            label: "Exercises",
-                            style: .hero
-                        )
+                    GlassEffectContainer(spacing: 12) {
+                        HStack(spacing: 12) {
+                            StatBadge(
+                                value: "\(counts.days)",
+                                label: counts.days == 1 ? "Day" : "Days",
+                                style: .hero
+                            )
+                            StatBadge(
+                                value: "\(counts.exercises)",
+                                label: counts.exercises == 1 ? "Exercise" : "Exercises",
+                                style: .hero
+                            )
+                        }
                     }
                 }
+                .padding(24)
             }
-            .padding(24)
+            .frame(maxWidth: .infinity, minHeight: 200)
+            .contentShape(Rectangle())
         }
-        .frame(maxWidth: .infinity, minHeight: 200)
-        .contentShape(Rectangle())
-        .onTapGesture {
-            selectedProgram = program
-        }
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel(program.name)
-        .accessibilityAddTraits(.isButton)
+        .buttonStyle(.plain)
+        .accessibilityLabel("\(program.name), active program, \(counts.spokenSummary)")
         .accessibilityIdentifier("program.row.\(program.name)")
         .padding(.horizontal, 16)
     }
@@ -264,19 +255,17 @@ struct ProgramsView: View {
 
 struct ProgramRow: View {
     let program: Program
+    let counts: ProgramCounts
     let onSetActive: () -> Void
 
     var body: some View {
-        let workouts = program.workoutsList
-        let workoutCount = workouts.count
-        let exerciseCount = workouts.reduce(0) { $0 + $1.plannedExercisesList.count }
-
         HStack(spacing: 14) {
             VStack(alignment: .leading, spacing: 4) {
                 Text(program.name)
                     .font(.headline.bold())
                     .foregroundStyle(.white)
-                Text("\(workoutCount) \(workoutCount == 1 ? "Day" : "Days")  ·  \(exerciseCount) Exercises")
+                    .multilineTextAlignment(.leading)
+                Text("\(counts.daysText)  ·  \(counts.exercisesText)")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .tracking(0.5)
@@ -287,9 +276,11 @@ struct ProgramRow: View {
             Image(systemName: "chevron.right")
                 .font(.subheadline)
                 .foregroundStyle(.tertiary)
+                .accessibilityHidden(true)
         }
         .padding(16)
         .glassBackground()
+        .contentShape(Rectangle())
         .contextMenu {
             Button {
                 onSetActive()

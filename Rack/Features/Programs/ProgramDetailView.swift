@@ -4,31 +4,20 @@ import SwiftData
 struct ProgramDetailView: View {
     @Environment(\.modelContext) private var context
     @Environment(\.dismiss) private var dismiss
-    @Bindable var program: Program
+    let program: Program
     var onDeleteProgram: (() -> Void)?
     @State private var showingAddWorkout = false
     @State private var showingEditProgram = false
     @State private var viewModel = ProgramDetailViewModel()
     @State private var isReorderMode = false
-    @State private var selectedWorkout: WorkoutTemplate?
     @State private var persistenceAlert: PersistenceAlert?
     @State private var showingPersistenceAlert = false
     @Environment(DeletionCoordinator.self) private var deletionCoordinator: DeletionCoordinator?
     @AppStorage("programDetailViewMode") private var detailMode: ProgramDetailMode = .days
 
-    private var gradient: some View {
-        LinearGradient(
-            colors: [Color(red: 0.04, green: 0.06, blue: 0.18), Color.black],
-            startPoint: .top, endPoint: .bottom
-        )
-        .ignoresSafeArea()
-    }
-
     var body: some View {
-        let workouts = program.workoutsList
-        let visibleWorkouts = SiblingOrder.workouts(workouts)
+        let visibleWorkouts = SiblingOrder.workouts(program.workoutsList)
             .filter { deletionCoordinator?.isPending($0) != true }
-        let exerciseCount = workouts.reduce(0) { $0 + $1.plannedExercisesList.count }
         let canToggleReorderMode = detailMode == .days
             && deletionCoordinator?.hasPendingWorkouts(in: program) != true
             && !showingAddWorkout
@@ -37,10 +26,7 @@ struct ProgramDetailView: View {
         ZStack {
             ScrollView {
                 VStack(spacing: 20) {
-                    programHero(
-                        workoutCount: workouts.count,
-                        exerciseCount: exerciseCount
-                    )
+                    programHero(counts: ProgramCounts(program, hiding: deletionCoordinator))
                     viewModePicker
 
                     if visibleWorkouts.isEmpty {
@@ -62,15 +48,10 @@ struct ProgramDetailView: View {
                                 WorkoutTemplateRow(
                                     workout: workout,
                                     isReorderMode: isReorderMode,
-                                    dragHandle: dragHandle,
-                                    onTap: {
-                                        guard !isReorderMode else { return }
-                                        selectedWorkout = workout
-                                    }
+                                    dragHandle: dragHandle
                                 )
                                 .accessibilityElement(children: .contain)
                                 .accessibilityLabel(workout.name)
-                                .accessibilityAddTraits(.isButton)
                                 .accessibilityIdentifier("workout.row.\(workout.name)")
                             }
                         }
@@ -84,6 +65,8 @@ struct ProgramDetailView: View {
                 .padding(.bottom, 32)
             }
             .allowsHitTesting(!showingAddWorkout)
+            // `isModal` only hides siblings, so hide the content behind the overlay too.
+            .accessibilityHidden(showingAddWorkout)
 
             if showingAddWorkout {
                 AddWorkoutOverlay(
@@ -97,12 +80,7 @@ struct ProgramDetailView: View {
         }
         .navigationTitle(program.name)
         .titleDisplayMode(.inline)
-        .navigationDestination(item: $selectedWorkout) { workout in
-            WorkoutTemplateDetailView(workout: workout, onDeleteWorkout: {
-                scheduleDeletion(of: workout)
-            })
-        }
-        .background { gradient }
+        .appBackground()
         .toolbar {
             ToolbarItemGroup(placement: .topBarTrailing) {
                 if isReorderMode {
@@ -123,13 +101,6 @@ struct ProgramDetailView: View {
                     }
 
                     if !isReorderMode {
-                        if !program.isActive {
-                            Button {
-                                setProgramActive()
-                            } label: {
-                                Label("Set as Active", systemImage: "checkmark.circle")
-                            }
-                        }
                         Button {
                             showingEditProgram = true
                         } label: {
@@ -162,7 +133,7 @@ struct ProgramDetailView: View {
         .persistenceAlert(isPresented: $showingPersistenceAlert, alert: persistenceAlert)
     }
 
-    private func programHero(workoutCount: Int, exerciseCount: Int) -> some View {
+    private func programHero(counts: ProgramCounts) -> some View {
         VStack(alignment: .leading, spacing: 12) {
             Text("PROGRAM")
                 .font(.caption.bold())
@@ -183,21 +154,46 @@ struct ProgramDetailView: View {
             GlassEffectContainer(spacing: 12) {
                 HStack(spacing: 12) {
                     StatBadge(
-                        value: "\(workoutCount)",
-                        label: workoutCount == 1 ? "Day" : "Days",
+                        value: "\(counts.days)",
+                        label: counts.days == 1 ? "Day" : "Days",
                         style: .hero
                     )
                     StatBadge(
-                        value: "\(exerciseCount)",
-                        label: "Exercises",
+                        value: "\(counts.exercises)",
+                        label: counts.exercises == 1 ? "Exercise" : "Exercises",
                         style: .hero
                     )
                 }
             }
             .padding(.top, 4)
+
+            activeStatus
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.top, 4)
+    }
+
+    /// Progress tracks only the active program, so activating one is a visible action.
+    @ViewBuilder
+    private var activeStatus: some View {
+        if program.isActive {
+            Label("Active Program", systemImage: "checkmark.circle.fill")
+                .font(.subheadline.bold())
+                .foregroundStyle(.blue)
+                .frame(minHeight: 44)
+        } else {
+            Button {
+                setProgramActive()
+            } label: {
+                Label("Set as Active", systemImage: "checkmark.circle")
+                    .font(.subheadline.bold())
+            }
+            .buttonStyle(.glass)
+            .controlSize(.large)
+            .disabled(isReorderMode || showingAddWorkout)
+            .accessibilityHint("Tracks this program's exercises on the Progress tab")
+            .accessibilityIdentifier("program.setActive")
+        }
     }
 
     private var viewModePicker: some View {
@@ -284,11 +280,6 @@ struct ProgramDetailView: View {
         }
     }
 
-    private func scheduleDeletion(of workout: WorkoutTemplate) {
-        exitReorderMode()
-        deletionCoordinator?.request(workout)
-    }
-
     private func presentPersistenceAlert(title: String, error: PersistenceCommandError) {
         persistenceAlert = PersistenceAlert(title: title, error: error)
         showingPersistenceAlert = true
@@ -322,6 +313,7 @@ private struct AddWorkoutOverlay: View {
                 .onTapGesture {
                     cancel()
                 }
+                .accessibilityHidden(true)
 
             VStack(spacing: 16) {
                 Text("Add Workout Day")
@@ -352,6 +344,11 @@ private struct AddWorkoutOverlay: View {
             .padding(.horizontal, 32)
             .onAppear { isNameFocused = true }
         }
+        // Keeps VoiceOver inside the overlay, like a system alert, and lets the
+        // two-finger scrub gesture cancel it.
+        .accessibilityElement(children: .contain)
+        .accessibilityAddTraits(.isModal)
+        .accessibilityAction(.escape) { cancel() }
     }
 
     private func cancel() {
@@ -370,7 +367,6 @@ struct WorkoutTemplateRow: View {
     let workout: WorkoutTemplate
     let isReorderMode: Bool
     let dragHandle: ReorderDragHandle
-    let onTap: () -> Void
 
     var body: some View {
         let exercises = workout.sortedExercises
@@ -379,7 +375,8 @@ struct WorkoutTemplateRow: View {
             if isReorderMode {
                 rowContent(exercises: exercises)
             } else {
-                Button(action: onTap) {
+                // Resolved by `ProgramsView`'s `navigationDestination(for:)`.
+                NavigationLink(value: ProgramsRoute.workout(workout)) {
                     rowContent(exercises: exercises)
                 }
                 .buttonStyle(.plain)
@@ -447,6 +444,7 @@ struct WorkoutTemplateRow: View {
                         : Color.blue.opacity(isReorderMode ? 0.55 : 1.0)
                     )
             }
+            .accessibilityHidden(true)
         }
         .contentShape(Rectangle())
     }

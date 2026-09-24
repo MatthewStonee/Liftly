@@ -1,56 +1,67 @@
-# Liftly — Codex Instructions
+# Liftly — Agent Instructions
+
+Shared by every coding agent: Codex reads this file directly, and `CLAUDE.md` imports it.
 
 ## Project Overview
-Liftly is an iOS fitness and workout programming app built with SwiftUI. Helps users track programs, exercises, sets, reps, and more over time.
+Liftly is an iPhone fitness and workout programming app built with SwiftUI. Users build programs of workout days, log sets against the active program's exercises, and track progress and personal records over time.
 
 ## Architecture & Conventions
-- SwiftUI for all UI (no UIKit unless SwiftUI can't do it)
-- SwiftData for local persistence — schema lives in `Rack/RackApp.swift`
-- MVVM — ViewModels are `@Observable`, hold all business logic; Views are dumb
-- Dark mode first (`.preferredColorScheme(.dark)` is forced app-wide)
-- Liquid Glass UI elements; SF Symbols for all icons
-- Prioritize following Apple HIG; Ask when it may not be ideal
-- Fitness-friendly: large tap targets, easy one-handed use
+- SwiftUI for all UI; use UIKit only where SwiftUI can't do the job.
+- SwiftData persistence with CloudKit sync and a local-only fallback. The schema is `AppDataStore.schema` (`Rack/Shared/AppDataStore.swift`). No Core Data, and no UserDefaults for model data (small flags and `@AppStorage` preferences are fine).
+- MVVM: feature view models hold the business logic and persistence commands; views stay presentational. View models that hold view state are `@Observable`.
+- Dark mode only: `UIUserInterfaceStyle = Dark` in `Rack/Info.plist` plus `.preferredColorScheme(.dark)`.
+- Liquid Glass surfaces and SF Symbols for icons. Follow Apple's HIG, and ask when a request conflicts with it.
+- Fitness-friendly: large tap targets (44pt minimum), easy one-handed use.
 
 ## Invariants (do not break)
-- **Weights are always stored in lbs internally.** UI converts via `WeightUnit.display(_)` / `WeightUnit.store(_)` from `Rack/Shared/Extensions.swift`. User preference lives in `@AppStorage("weightUnit")`. Any new weight-facing view must go through these helpers — never read/write raw doubles to the user. Editable weight fields use `WeightDraft` / `WeightInput` (`Rack/Shared/WeightInput.swift`): they parse locale-aware, ungrouped decimals, reject invalid text instead of reading it as zero, and reuse the exact stored pounds when the text is unchanged.
-- **`LoggedSet.session` is optional.** This is intentional so Quick Log can create a `LoggedSet` without a `WorkoutSession`. Code that filters "sets belonging to a session" must handle nil.
-- **PRs are tracked per exercise × per rep count**, not just per exercise. A one-time `backfillPersonalRecords()` runs on app launch to mark historical PRs. New/edit/delete of a `LoggedSet` must go through `ProgressViewModel.logSet` / `updateSet` / `deleteSet`, which fetch the exercise's current sets and save the set change and its `isPersonalRecord` flags together.
-- **User writes save explicitly.** Main-context autosave is off. Every create/edit/delete/reorder goes through a feature ViewModel method built on `PersistenceCommandRunner.perform(in:_:)`, which refuses an already-dirty context, applies the change synchronously, saves once, and rolls back on failure. Commands that insert a model into a to-many relationship (logging a set, adding a workout day or planned exercise) use `performInsert(in:refresh:_:)` instead: on iOS 27, rolling back such an insert makes the parent's relationship unreadable and the next read crashes, so these save through a disposable context and reload the parent's relationships on success. Views show the returned `PersistenceCommandError` with `.persistenceAlert(isPresented:alert:)`; failures from delayed work (undo-toast deletions) go to the environment's `PersistenceAlertCenter`, and the frontmost `.deletionUndoToast` host presents them, so the alert appears over an open sheet instead of dismissing it. Never mutate persisted models from views or bind form fields to model properties — keep drafts in `@State`.
+- **Weights are stored in pounds.** Convert for display with `WeightUnit.display(_)` / `WeightUnit.store(_)` (`Rack/Shared/Extensions.swift`); the preference is `@AppStorage("weightUnit")`. Editable weight fields use `WeightDraft` / `WeightInput` (`Rack/Shared/WeightInput.swift`), which parse locale-aware decimals, reject invalid text instead of reading it as zero, and keep the exact stored pounds when the text is unchanged.
+- **`LoggedSet.session` is optional**, so Quick Log can log without a `WorkoutSession`. Code that filters by session must handle nil.
+- **PRs are tracked per exercise × rep count.** Log and edit sets through `ProgressViewModel.logSet` / `updateSet`, and delete them through `DeletionCoordinator`, whose commit calls `ProgressViewModel.deleteSetsInCommand`. Each path saves the set change and its `isPersonalRecord` flags together. `PersonalRecordBackfillActor.backfillIfNeeded()` repairs historical flags once, after startup maintenance.
+- **User writes save explicitly.** Main-context autosave is off. Every create, edit, delete, and reorder goes through a view-model command built on `PersistenceCommandRunner.perform(in:_:)`, which refuses a dirty context, applies the change, saves once, and rolls back on failure. Commands that insert into a to-many relationship use `performInsert(in:refresh:_:)` instead: on iOS 27, rolling back such an insert leaves the parent's relationship unreadable and the next read crashes, so these save through a disposable context. Show returned errors with `.persistenceAlert(isPresented:alert:)`. Never mutate persisted models from views or bind form fields to model properties; keep drafts in `@State`.
+- **The schema stays CloudKit-compatible.** Every stored property needs a default value or must be optional, relationships must be optional, `@Attribute(.unique)` is not allowed, and changes must be additive. A violation makes the CloudKit store fail to open, and users silently drop to the local-only fallback.
 - **Startup never deletes or replaces the store.** `AppDataStore` tries CloudKit, then local-only at the same location, and otherwise shows a Retry screen. Maintenance starts only after the store opens.
 
 ## Shared Utilities
-Check `Rack/Shared/` and nearby feature components before creating new UI components.
+Check `Rack/Shared/` and the feature's own folder before building a new component.
 
-### Patterns to reuse
-- **Undo-deletion**: schedule deletion via `Task` with ~4s delay, cancelable from `UndoToast`. See `ProgramsView` and `ProgramDetailView`. Destructive actions should follow this pattern, not delete immediately. Every sheet's root view must apply `.deletionUndoToast(deletionCoordinator)`, which shows the toast and presents deletion failures above that sheet.
-- **History paging**: `ExerciseHistoryViewModel` owns the range, the loaded window, every refresh and the scroll anchor for `ExerciseHistoryView` — views never fetch sets themselves. All refresh paths go through its `fetchWindow`, which keeps the user's place when the anchored row disappears and returns them to it on Undo; `appear(exerciseID:context:excluding:)` loads on first appearance and refreshes on re-entry.
-- **Metrics refresh**: set commands (`ProgressViewModel.logSet` / `updateSet` / `deleteSet`) only save and publish `LoggedSetChange`; they never recompute metrics. The screen that shows metrics refreshes them itself: `ExerciseProgressView` does so on entry, on `LoggedSetChange` for its exercise (immediately, so Quick Log prefills the latest set), and on foreground return, and skips the work while History covers it.
-- **Haptics**: `.sensoryFeedback(.impact, ...)` for drag/toast; `UINotificationFeedbackGenerator().notificationOccurred(.success)` for successful logs. Match the surrounding code when adding new interactions.
+- **Deletion**: request deletions with `DeletionCoordinator.request(_:)`; never delete immediately or schedule your own timer. The coordinator batches requests behind the Undo toast, pauses while the app is inactive, commits when the Undo window ends or the app moves to the background, and reports failures to `PersistenceAlertCenter`. It deletes programs, workout days, planned exercises, and logged sets; a new deletable type needs an `Identity` case and commit logic. Apply `.deletionUndoToast(deletionCoordinator)` to every sheet's root view so failures appear above that sheet.
+- **Navigation**: push with `NavigationLink(value:)` or a path append, and resolve screens in one `navigationDestination(for:)` at the stack root: `ProgramsRoute` (`ProgramsView.swift`) and `ProgressRoute` (`ProgressView.swift`).
+- **History**: `ExerciseHistoryViewModel` owns paging, refreshes, and the scroll anchor for `ExerciseHistoryView`; views never fetch sets themselves. Its doc comments describe the anchoring rules.
+- **Metrics**: set commands only save and publish `LoggedSetChange`; the screen showing metrics (`ExerciseProgressView`) refreshes them itself.
+- **Components**: `TimeRangePicker`, `.appBackground()`, `GlassCard`, `PinnedActionBar` (a sheet's primary action above the keyboard), `WeightValidationMessage`, `ReorderableForEach`, and the Log Set / Edit Set sheets in `LoggedSetSheets.swift`.
+- **Haptics**: prefer `.sensoryFeedback`. Use `UINotificationFeedbackGenerator` only when the view dismisses in the same action (Quick Log), because a `.sensoryFeedback` trigger on a disappearing view may never fire.
 
 ## Gotchas
-- `Button(_:systemImage:role:)` shorthand hits SwiftUI overload resolution bugs — always use explicit label form
-- `.glassEffect(.regular.interactive())` on a Button label intercepts taps and breaks the button action — do NOT use `.interactive()` on label content inside a `Button`; use a `ButtonStyle` instead
-- Sheet presentation state (`isPresented`) must be plain `@State Bool` on the view — do NOT store it in an `@Observable` ViewModel. After sheet dismissal, the binding chain through `@Observable` can silently fail to re-enable the triggering control.
-- View-destination `NavigationLink { Destination() }` inside a pushed screen can lock `NavigationStack` into an endless update loop on iOS 27 — do NOT use it; push with `NavigationLink(value:)` or a path append, and resolve every screen in one `navigationDestination(for:)` at the stack root (see `ProgressRoute` in `ProgressView.swift`). Opening History from a screen pushed with `navigationDestination(item:)` froze the app at 100% CPU.
+- `Button(_:systemImage:role:)` shorthand hits SwiftUI overload-resolution bugs; use the explicit label form.
+- `.glassEffect(.regular.interactive())` on a Button label intercepts taps and breaks the action. Put interactive glass in a `ButtonStyle`.
+- Keep presentation state (a `Bool` or an optional item) in the view's `@State`, not in an `@Observable` view model: after dismissal the binding through the view model can silently fail to re-enable the triggering control.
+- A view-destination `NavigationLink { Destination() }`, or a `navigationDestination(item:)` declared inside a pushed screen, can lock `NavigationStack` into an endless update loop on iOS 27. Use the route enums above.
+- Modifiers that react to a change (`.sensoryFeedback`, `.onChange`) only fire while their view exists; attach them to a view that outlives the value.
+- Apply `clipShape` before `.glassEffect`. Inside a `GlassEffectContainer`, a `clipShape` applied after the glass left the Progress row's accent bar unclipped.
+
+## Concurrency
+- Swift 5 language mode with `MainActor` as the default isolation and approachable concurrency. Code that runs on a `@ModelActor` (startup maintenance, the PR backfill) and the helpers it calls must be `nonisolated`.
+- Data-race checking is off, so the compiler won't catch thread hops. Deliver notifications from background contexts, such as `ModelContext.didSave`, to the main thread yourself.
 
 ## Rules
-- Always use SwiftData for persistence — no CoreData, no UserDefaults for model storage (UserDefaults is fine for small flags like `"exerciseLibrarySeeded"` or `@AppStorage` preferences)
-- All new views go in `Rack/Features/<FeatureName>/`
-- Always build and test in simulator after changes
-- Don't add third-party dependencies without asking
-- Don't hard-code exercise names or data — seed via `ExerciseLibrary` instead
+- Screens go in `Rack/Features/<Feature>/`; reusable components go in `Rack/Shared/`.
+- Build and test in the simulator after changes.
+- Don't add third-party dependencies without asking.
+- Don't hard-code exercise data; seed through `ExerciseLibrary`.
 
 ## Testing
 Ask before adding a test target.
-- Unit-test sources live in `RackTests/` (Swift Testing, `@testable import Rack`), outside the synchronized `Rack/` folder so the app target doesn't compile them.
-- Debug builds accept `-LiftlyDebugSaveFailures <n>` and `-LiftlyDebugStoreOpenFailures <n>` launch arguments to simulate persistence failures in the simulator.
+- Unit tests live in `RackTests/` (Swift Testing, `@testable import Rack`) and belong to the `LiftlyUnitTests` target by explicit membership, so a new file needs a project change. Prefer adding suites to an existing file. `Rack/` is a synchronized folder, so new app files join the app target automatically.
+- UI tests live in `RackUITests/` (XCTest); see its README.
+- CI (`.github/workflows/ci.yml`) builds the `Rack` scheme and runs both test targets on every pull request and push to `main`, on GitHub's `xcode-27` runner with the iPhone 18 Pro simulator. A failing test is retried up to twice. When the project moves to a new Xcode or simulator, update the workflow's `runs-on` and destination to match.
+- Debug launch arguments:
+  - `-LiftlyDebugStoreOpenFailures <n>`, `-LiftlyDebugSaveFailures <n>`, and `-LiftlyDebugHistoryLoadFailures <n>` fail the first `n` store opens, saves, or history page loads.
+  - `-LiftlyUITestFixture <reorder|history|firstRun> <id>` opens an isolated local-only store (no iCloud) seeded for that scenario; `firstRun` has only the exercise library. `-LiftlyUITestUndoSeconds <4–30>` stretches the Undo window for UI automation.
 
 ## Build Configuration
-- Scheme: `Rack`
-- Target simulator: iPhone 18 Pro (iOS 27.x)
-- iPhone-only (no iPad, no Mac Catalyst) — layouts can assume phone-sized viewports
-- Build command: Ask if you should use XcodeBuildMCP tools, never raw `xcodebuild` shell commands
+- Build and test locally with XcodeBuildMCP without asking; never run raw `xcodebuild` shell commands. Only the CI workflow calls `xcodebuild` directly.
+- Scheme: `Rack`. Target simulator: iPhone 18 Pro (iOS 27.x).
+- iPhone-only and portrait-only (no iPad, no Mac Catalyst, no landscape); layouts can assume a phone-sized portrait viewport.
 
 ## Open To-Dos
-- Tracked in Notion: https://www.notion.so/33def31f82228136a7fbe2bb7b7262e6
+- Tracked in Notion: https://www.notion.so/33def31f82228136a7fbe2bb7b7262e6. Statuses can lag the code, so check the code before relying on one.

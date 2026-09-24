@@ -184,6 +184,18 @@ final class DeletionCoordinator {
     /// A stale callback cannot commit or clear a newer batch.
     func expire(generation expected: UUID) {
         guard !isPaused, generation == expected, !pending.isEmpty else { return }
+        commitBatch()
+    }
+
+    /// Commits the batch right away, even while paused. The app calls this when it moves
+    /// to the background: iOS may terminate a background app, and losing the in-memory
+    /// batch would bring the deleted items back on the next launch.
+    func commitPendingNow() {
+        guard !pending.isEmpty else { return }
+        commitBatch()
+    }
+
+    private func commitBatch() {
         let batch = pending
         let result = commandRunner.perform(in: context) { context in
             try Self.commit(batch, in: context, onFetch: onFetch)

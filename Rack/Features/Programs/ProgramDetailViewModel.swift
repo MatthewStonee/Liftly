@@ -62,16 +62,4 @@ final class ProgramDetailViewModel {
             try ProgramActivation.activate(program, in: context)
         }
     }
-
-    /// Commits a workout day deletion once its undo window has passed.
-    func deleteWorkout(_ workout: WorkoutTemplate, context: ModelContext) -> Result<Void, PersistenceCommandError> {
-        guard !workout.isDeleted else { return .success(()) }
-
-        return commandRunner.perform(in: context) { context in
-            let siblings = workout.program?.workoutsList.filter { $0.id != workout.id } ?? []
-            workout.program = nil
-            context.delete(workout)
-            SiblingOrder.normalize(siblings)
-        }
-    }
 }

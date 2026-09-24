@@ -21,7 +21,9 @@ struct ExerciseHistoryView: View {
                     .font(.largeTitle.bold())
                     .frame(maxWidth: .infinity, alignment: .leading)
 
-                rangePicker
+                TimeRangePicker(selection: viewModel.range, identifierPrefix: "history.range") { choice in
+                    viewModel.selectRange(choice, exerciseID: exercise.id, context: context, excluding: pendingIDs)
+                }
 
                 if let loadingError = viewModel.initialError {
                     ContentUnavailableView {
@@ -87,12 +89,7 @@ struct ExerciseHistoryView: View {
         .scrollPosition(id: $viewModel.scrollAnchorID)
         .navigationTitle("History")
         .titleDisplayMode(.inline)
-        .background {
-            LinearGradient(
-                colors: [Color(red: 0.04, green: 0.06, blue: 0.18), Color.black],
-                startPoint: .top, endPoint: .bottom
-            ).ignoresSafeArea()
-        }
+        .appBackground()
         .sheet(item: $setToEdit) { set in
             EditLoggedSetSheet(
                 set: set,
@@ -118,32 +115,6 @@ struct ExerciseHistoryView: View {
 
     private var pendingIDs: Set<UUID> {
         deletionCoordinator?.pendingLoggedSetIDs(for: exercise.id) ?? []
-    }
-
-    private var rangePicker: some View {
-        GlassCard(padding: 8) {
-            HStack(spacing: 0) {
-                ForEach(ProgressViewModel.TimeRange.allCases, id: \.self) { choice in
-                    Button {
-                        viewModel.selectRange(choice, exerciseID: exercise.id, context: context, excluding: pendingIDs)
-                    } label: {
-                        Text(choice.rawValue)
-                            .font(.subheadline.bold())
-                            .frame(maxWidth: .infinity, minHeight: 44)
-                            .foregroundStyle(viewModel.range == choice ? Color.white : Color.secondary)
-                            .background {
-                                if viewModel.range == choice {
-                                    RoundedRectangle(cornerRadius: 10).fill(.blue)
-                                }
-                            }
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel(choice.accessibilityLabel)
-                    .accessibilityAddTraits(viewModel.range == choice ? .isSelected : [])
-                    .accessibilityIdentifier("history.range.\(choice.rawValue)")
-                }
-            }
-        }
     }
 
     private func historyRow(_ set: LoggedSet) -> some View {
@@ -184,7 +155,7 @@ struct ExerciseHistoryView: View {
         }
         .padding(.vertical, 6)
         .accessibilityElement(children: .contain)
-        .accessibilityLabel("\(set.completedAt.formatted(.dateTime.month(.abbreviated).day().year())), \(set.weight.formattedWeight(unit: weightUnit)) \(weightUnit.symbol), \(set.reps) reps")
+        .accessibilityLabel(set.spokenSummary(unit: weightUnit, dateStyle: .dateTime.month(.abbreviated).day().year()))
     }
 
     private func refresh() {
@@ -197,17 +168,5 @@ struct ExerciseHistoryView: View {
 
     private func retry() {
         viewModel.retry(exerciseID: exercise.id, context: context, excluding: pendingIDs)
-    }
-}
-
-extension ProgressViewModel.TimeRange {
-    var accessibilityLabel: String {
-        switch self {
-        case .oneMonth: return "One month"
-        case .threeMonths: return "Three months"
-        case .sixMonths: return "Six months"
-        case .oneYear: return "One year"
-        case .allTime: return "All time"
-        }
     }
 }

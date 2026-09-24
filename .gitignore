@@ -38,3 +38,6 @@ Carthage/Build/
 
 # Xcode Previews
 PreviewContent/
+
+# Agent tooling state
+.superpowers/

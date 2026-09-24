@@ -4,33 +4,39 @@ A personal iOS fitness and workout programming app built with SwiftUI. Liftly he
 
 ## Features
 
-- **Program Builder** — Create and manage training programs made up of workout days. Add exercises to each day with planned sets, reps, and target weight.
-- **Progress Tracking** — View per-exercise progress charts (weight over time), personal records, and a full log of recent sets. Filter by time range to see short or long-term trends.
-- **Quick Log** — Log a set for any exercise on the fly, without needing an active workout session.
-- **Exercise Library** — Browse exercises filtered by muscle group. Create custom exercises inline when adding to a workout.
+- **Program Builder** — Create programs made up of workout days, and give each exercise planned sets, an exact, ranged, or to-failure rep target, and an optional target weight. Your first program becomes active automatically; switch programs any time.
+- **Progress Tracking** — See the active program's exercises with per-exercise charts of weight over time, personal records per rep count, and weekly volume. Filter by time range, or page through an exercise's full history.
+- **Quick Log** — Log a set for any exercise in the active program, without starting a workout session.
+- **Exercise Library** — Browse the built-in library by muscle group or search it, and create custom exercises while adding one to a workout.
+- **Undo** — Deleting a program, day, exercise, or set can be undone for a few seconds; leaving the app saves the deletion.
+- **iCloud Sync** — Data syncs through CloudKit, and stays on the device if iCloud is unavailable.
 
 ## Tech Stack
 
-- **SwiftUI** — All UI, dark mode first
-- **SwiftData** — Local persistence, no third-party dependencies
+- **SwiftUI** — All UI, dark mode only, with Liquid Glass surfaces
+- **SwiftData** — Persistence with CloudKit sync and a local-only fallback; no third-party dependencies
 - **Swift Charts** — Progress visualizations
-- **MVVM** — ViewModels own all business logic; Views are purely presentational
+- **MVVM** — ViewModels own the business logic; views stay presentational
 
 ## Requirements
 
-- iOS 26.2+
-- Xcode 26+
+- iOS 27.0+ (iPhone, portrait only)
+- Xcode 27+
 
 ## Project Structure
 
 ```
 Rack/
 ├── Features/
-│   ├── Programs/       # Program list, detail, workout day builder
-│   ├── Progress/       # Progress charts, Quick Log
-│   └── Exercises/      # Exercise picker + inline creation
-├── Models/             # SwiftData models (Program, Exercise, WorkoutSession, etc.)
-└── Shared/             # Reusable UI components (GlassCard, StatBadge, etc.)
+│   ├── Exercises/      # Exercise picker and custom exercise creation
+│   ├── Programs/       # Program list, program detail, workout days
+│   ├── Progress/       # Progress list, exercise detail, history, set sheets
+│   ├── Settings/       # Units and default rep target
+│   └── Startup/        # Store opening, recovery, and the app root
+├── Models/             # SwiftData models and the exercise library seed
+└── Shared/             # Persistence commands, deletion undo, shared UI
+RackTests/              # Unit tests (Swift Testing)
+RackUITests/            # UI integration tests (XCTest)
 ```
 
 ## Getting Started
@@ -39,5 +45,7 @@ Rack/
 2. Open `Rack.xcodeproj` in Xcode
 3. Select the `Rack` scheme and an iPhone simulator
 4. Build and run (`Cmd+R`)
+
+Run the unit and UI tests with **Product ▸ Test** (`Cmd+U`) on the iPhone 18 Pro (iOS 27) simulator. See [RackUITests/README.md](RackUITests/README.md) for the UI-test fixtures. GitHub Actions runs the same tests on every pull request and push to `main` ([.github/workflows/ci.yml](.github/workflows/ci.yml)).
 
 No dependencies to install — the project uses only Apple frameworks.

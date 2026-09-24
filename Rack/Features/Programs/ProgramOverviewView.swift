@@ -197,7 +197,6 @@ private struct ProgramOverviewExerciseRow: View {
             return repPrescription
         }
 
-        let unitName = weightUnit == .lbs ? "pounds" : "kilograms"
-        return "\(repPrescription), target weight \(weight.formattedWeight(unit: weightUnit)) \(unitName)"
+        return "\(repPrescription), target weight \(weight.formattedWeight(unit: weightUnit)) \(weightUnit.spokenName)"
     }
 }

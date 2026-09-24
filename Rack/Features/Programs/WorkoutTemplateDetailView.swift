@@ -4,7 +4,7 @@ import SwiftData
 struct WorkoutTemplateDetailView: View {
     @Environment(\.modelContext) private var context
     @Environment(\.dismiss) private var dismiss
-    @Bindable var workout: WorkoutTemplate
+    let workout: WorkoutTemplate
     var onDeleteWorkout: (() -> Void)?
     @AppStorage("plannedRepTargetDefault") private var plannedRepTargetDefault: PlannedRepTargetType = .exact
     @State private var showingExercisePicker = false
@@ -59,13 +59,7 @@ struct WorkoutTemplateDetailView: View {
         }
         .navigationTitle(workout.name)
         .titleDisplayMode(.large)
-        .background {
-            LinearGradient(
-                colors: [Color(red: 0.04, green: 0.06, blue: 0.18), Color.black],
-                startPoint: .top, endPoint: .bottom
-            )
-            .ignoresSafeArea()
-        }
+        .appBackground()
         .toolbar {
             ToolbarItemGroup(placement: .topBarTrailing) {
                 if isReorderMode {
@@ -173,7 +167,7 @@ struct WorkoutTemplateDetailView: View {
 }
 
 struct PlannedExerciseRow: View {
-    @Bindable var planned: PlannedExercise
+    let planned: PlannedExercise
     let isReorderMode: Bool
     let dragHandle: ReorderDragHandle
     let onDelete: () -> Void
@@ -269,35 +263,28 @@ struct RenameWorkoutDaySheet: View {
 
     var body: some View {
         NavigationStack {
-            ZStack {
-                LinearGradient(
-                    colors: [Color(red: 0.04, green: 0.06, blue: 0.18), Color.black],
-                    startPoint: .top, endPoint: .bottom
-                )
-                .ignoresSafeArea()
-
-                VStack(spacing: 20) {
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text("Workout Day Name")
-                            .font(.subheadline.bold())
-                            .foregroundStyle(.secondary)
-                        TextField("Name", text: $name)
-                            .font(.title3)
-                            .padding(14)
-                            .background(Color.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 14))
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 14)
-                                    .strokeBorder(.white.opacity(0.1), lineWidth: 0.5)
-                            )
-                            .autocorrectionDisabled()
-                            .focused($isFocused)
-                    }
-                    Spacer()
-                    PrimaryButton("Save") { save() }
-                        .disabled(name.trimmingCharacters(in: .whitespaces).isEmpty)
+            VStack(spacing: 20) {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Workout Day Name")
+                        .font(.subheadline.bold())
+                        .foregroundStyle(.secondary)
+                    TextField("Name", text: $name)
+                        .font(.title3)
+                        .padding(14)
+                        .background(Color.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 14))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 14)
+                                .strokeBorder(.white.opacity(0.1), lineWidth: 0.5)
+                        )
+                        .autocorrectionDisabled()
+                        .focused($isFocused)
                 }
-                .padding(20)
+                Spacer()
+                PrimaryButton("Save") { save() }
+                    .disabled(name.trimmingCharacters(in: .whitespaces).isEmpty)
             }
+            .padding(20)
+            .appBackground()
             .navigationTitle("Rename Workout Day")
             .titleDisplayMode(.inline)
             .toolbar {
@@ -389,6 +376,7 @@ struct EditPlannedExerciseView: View {
                             .font(.subheadline.bold())
                             .foregroundStyle(.secondary)
                         TextField("Optional", text: $weightDraft.text)
+                            .accessibilityLabel("Target weight in \(weightDraft.input.unit.spokenName)")
                             .keyboardType(.decimalPad)
                             .focused($isWeightFieldFocused)
                             .padding(14)
@@ -414,13 +402,7 @@ struct EditPlannedExerciseView: View {
                         .disabled(weightMessage != nil)
                 }
             }
-            .background {
-                LinearGradient(
-                    colors: [Color(red: 0.04, green: 0.06, blue: 0.18), Color.black],
-                    startPoint: .top, endPoint: .bottom
-                )
-                .ignoresSafeArea()
-            }
+            .appBackground()
             .navigationTitle("Edit Exercise")
             .titleDisplayMode(.inline)
             .toolbar {

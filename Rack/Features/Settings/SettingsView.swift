@@ -7,68 +7,60 @@ struct SettingsView: View {
 
     var body: some View {
         NavigationStack {
-            ZStack {
-                LinearGradient(
-                    colors: [Color(red: 0.04, green: 0.06, blue: 0.18), Color.black],
-                    startPoint: .top,
-                    endPoint: .bottom
-                )
-                .ignoresSafeArea()
+            ScrollView {
+                VStack(alignment: .leading, spacing: 8) {
+                    settingsSectionTitle("Units")
 
-                ScrollView {
-                    VStack(alignment: .leading, spacing: 8) {
-                        settingsSectionTitle("Units")
+                    GlassCard(padding: 0) {
+                        VStack(alignment: .leading, spacing: 12) {
+                            settingsCardHeader(systemImage: "scalemass", title: "Weight Unit")
 
-                        GlassCard(padding: 0) {
-                            VStack(alignment: .leading, spacing: 12) {
-                                settingsCardHeader(systemImage: "scalemass", title: "Weight Unit")
-
-                                HStack(spacing: 8) {
-                                    ForEach([WeightUnit.lbs, WeightUnit.kg], id: \.self) { unit in
-                                        settingsChoiceButton(
-                                            title: unit.symbol,
-                                            subtitle: nil,
-                                            isSelected: weightUnit == unit
-                                        ) {
-                                            weightUnit = unit
-                                        }
+                            HStack(spacing: 8) {
+                                ForEach([WeightUnit.lbs, WeightUnit.kg], id: \.self) { unit in
+                                    settingsChoiceButton(
+                                        title: unit.symbol,
+                                        subtitle: nil,
+                                        isSelected: weightUnit == unit
+                                    ) {
+                                        weightUnit = unit
                                     }
                                 }
-                                .padding(.horizontal, 16)
-                                .padding(.bottom, 14)
                             }
-                        }
-
-                        settingsSectionTitle("Programming")
-
-                        GlassCard(padding: 0) {
-                            VStack(alignment: .leading, spacing: 12) {
-                                settingsCardHeader(systemImage: "repeat", title: "Default Rep Target")
-
-                                Text("Applies when you add a new exercise to a workout. You can still change each exercise individually.")
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                                    .padding(.horizontal, 16)
-
-                                VStack(spacing: 8) {
-                                    ForEach(PlannedRepTargetType.allCases, id: \.self) { type in
-                                        settingsChoiceButton(
-                                            title: type.title,
-                                            subtitle: type.settingsPreview,
-                                            isSelected: plannedRepTargetDefault == type
-                                        ) {
-                                            plannedRepTargetDefault = type
-                                        }
-                                    }
-                                }
-                                .padding(.horizontal, 16)
-                                .padding(.bottom, 14)
-                            }
+                            .padding(.horizontal, 16)
+                            .padding(.bottom, 14)
                         }
                     }
-                    .padding(20)
+
+                    settingsSectionTitle("Programming")
+
+                    GlassCard(padding: 0) {
+                        VStack(alignment: .leading, spacing: 12) {
+                            settingsCardHeader(systemImage: "repeat", title: "Default Rep Target")
+
+                            Text("Applies when you add a new exercise to a workout. You can still change each exercise individually.")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .padding(.horizontal, 16)
+
+                            VStack(spacing: 8) {
+                                ForEach(PlannedRepTargetType.allCases, id: \.self) { type in
+                                    settingsChoiceButton(
+                                        title: type.title,
+                                        subtitle: type.settingsPreview,
+                                        isSelected: plannedRepTargetDefault == type
+                                    ) {
+                                        plannedRepTargetDefault = type
+                                    }
+                                }
+                            }
+                            .padding(.horizontal, 16)
+                            .padding(.bottom, 14)
+                        }
+                    }
                 }
+                .padding(20)
             }
+            .appBackground()
             .navigationTitle("Settings")
             .titleDisplayMode(.inline)
             .toolbar {
@@ -123,6 +115,7 @@ struct SettingsView: View {
                     Image(systemName: "checkmark.circle.fill")
                         .font(.title3)
                         .foregroundStyle(.blue)
+                        .accessibilityHidden(true)
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -142,5 +135,7 @@ struct SettingsView: View {
             .foregroundStyle(.primary)
         }
         .buttonStyle(.plain)
+        // The checkmark and highlight are visual only; VoiceOver hears "Selected".
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
     }
 }

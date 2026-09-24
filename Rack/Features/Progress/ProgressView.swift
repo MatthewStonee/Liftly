@@ -32,18 +32,28 @@ struct ProgressTabView: View {
     @State private var path: [ProgressRoute] = []
     @State private var overviewRefreshTask: Task<Void, Never>?
     @AppStorage("weightUnit") private var weightUnit: WeightUnit = .lbs
+    private let onShowPrograms: () -> Void
+
+    /// - Parameter onShowPrograms: Switches to the Programs tab, where a program can be
+    ///   activated or given exercises.
+    init(onShowPrograms: @escaping () -> Void = {}) {
+        self.onShowPrograms = onShowPrograms
+    }
 
     var body: some View {
         NavigationStack(path: $path) {
             Group {
-                if viewModel.overview.programExercises.isEmpty {
-                    emptyState
-                } else {
+                if !viewModel.overview.programExercises.isEmpty {
                     exerciseList
+                } else if viewModel.hasLoadedOverview {
+                    emptyState(for: overviewSelection.program)
+                } else {
+                    // Keeps `onAppear` attached while the first overview loads.
+                    Color.clear
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .background { backgroundGradient }
+            .appBackground()
             .navigationTitle("Progress")
             .titleDisplayMode(.large)
             .navigationDestination(for: ProgressRoute.self) { route in
@@ -66,7 +76,12 @@ struct ProgressTabView: View {
                     scheduleOverviewRefresh()
                 }
             }
-            .onReceive(NotificationCenter.default.publisher(for: ModelContext.didSave)) { _ in
+            // Background contexts (startup maintenance) post `didSave` on their own
+            // thread, so hop to the main thread before touching view state.
+            .onReceive(
+                NotificationCenter.default.publisher(for: ModelContext.didSave)
+                    .receive(on: DispatchQueue.main)
+            ) { _ in
                 scheduleOverviewRefresh()
             }
             .onDisappear {
@@ -123,14 +138,6 @@ struct ProgressTabView: View {
         return (program, excludedWorkoutIDs, excludedPlannedIDs)
     }
 
-    private var backgroundGradient: some View {
-        LinearGradient(
-            colors: [Color(red: 0.04, green: 0.06, blue: 0.18), Color.black],
-            startPoint: .top, endPoint: .bottom
-        )
-        .ignoresSafeArea()
-    }
-
     private var weeklyVolumeCard: some View {
         VStack(alignment: .leading, spacing: 10) {
             Text("WEEKLY VOLUME")
@@ -139,10 +146,10 @@ struct ProgressTabView: View {
                 .foregroundStyle(.blue)
 
             HStack(alignment: .firstTextBaseline, spacing: 4) {
-                Text(viewModel.overview.weeklyVolume > 0 ? String(format: "%.0f", weightUnit.display(viewModel.overview.weeklyVolume)) : "\u{2014}")
+                Text(weeklyVolumeText ?? "\u{2014}")
                     .font(.system(size: 34, weight: .black))
                     .foregroundStyle(.white)
-                if viewModel.overview.weeklyVolume > 0 {
+                if weeklyVolumeText != nil {
                     Text(weightUnit.symbol)
                         .font(.title3)
                         .foregroundStyle(.secondary)
@@ -156,6 +163,16 @@ struct ProgressTabView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(20)
         .glassBackground()
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Weekly volume, last 7 days")
+        .accessibilityValue(weeklyVolumeText.map { "\($0) \(weightUnit.spokenName)" } ?? "None")
+    }
+
+    /// Grouped for readability, such as "12,500"; `nil` when nothing was lifted.
+    private var weeklyVolumeText: String? {
+        let volume = viewModel.overview.weeklyVolume
+        guard volume > 0 else { return nil }
+        return weightUnit.display(volume).formatted(.number.precision(.fractionLength(0)))
     }
 
     private var exerciseList: some View {
@@ -165,17 +182,14 @@ struct ProgressTabView: View {
                     weeklyVolumeCard
 
                     ForEach(viewModel.overview.programExercises) { exercise in
-                        ExerciseProgressRow(
-                            exercise: exercise,
-                            summary: viewModel.overview.summariesByExerciseID[exercise.id] ?? ExerciseProgressSummary()
-                        )
-                        .contentShape(Rectangle())
-                        .onTapGesture {
-                            path.append(.exercise(exercise))
+                        let summary = viewModel.overview.summariesByExerciseID[exercise.id] ?? ExerciseProgressSummary()
+                        NavigationLink(value: ProgressRoute.exercise(exercise)) {
+                            ExerciseProgressRow(exercise: exercise, summary: summary)
                         }
-                        .accessibilityElement()
-                        .accessibilityLabel(exercise.name)
-                        .accessibilityAddTraits(.isButton)
+                        .buttonStyle(.plain)
+                        .accessibilityLabel(
+                            ExerciseProgressRow.accessibilityLabel(for: exercise, summary: summary, unit: weightUnit)
+                        )
                         .accessibilityIdentifier("progress.exercise.\(exercise.name)")
                     }
                 }
@@ -186,22 +200,42 @@ struct ProgressTabView: View {
         }
     }
 
-    private var emptyState: some View {
+    /// Progress lists the active program's exercises, so each empty state says which of
+    /// those two steps is missing and leads back to Programs to finish it.
+    private func emptyState(for activeProgram: Program?) -> some View {
         VStack(spacing: 20) {
-            Image(systemName: "chart.line.uptrend.xyaxis")
+            Image(systemName: activeProgram == nil ? "chart.line.uptrend.xyaxis" : "dumbbell")
                 .font(.system(size: 64))
                 .symbolRenderingMode(.hierarchical)
                 .foregroundStyle(.blue)
+                .accessibilityHidden(true)
             VStack(spacing: 8) {
-                Text("No Progress Data Yet")
+                Text(activeProgram == nil ? "No Active Program" : "No Exercises Yet")
                     .font(.title2.bold())
-                Text("Exercises from your active program will appear here once you start logging sets.")
+                Text(emptyStateMessage(for: activeProgram))
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
             }
+            Button {
+                onShowPrograms()
+            } label: {
+                Text("Go to Programs")
+                    .fontWeight(.semibold)
+                    .frame(minWidth: 160, minHeight: 28)
+            }
+            .buttonStyle(.glassProminent)
+            .controlSize(.large)
+            .accessibilityIdentifier("progress.showPrograms")
         }
         .padding(32)
+    }
+
+    private func emptyStateMessage(for activeProgram: Program?) -> String {
+        if let activeProgram {
+            return "Add exercises to a workout day in \(activeProgram.name) to track them and log sets here."
+        }
+        return "Set a program as active to track its exercises and log sets here."
     }
 }
 
@@ -232,7 +266,7 @@ struct ExerciseProgressRow: View {
 
                 HStack(spacing: 14) {
                     VStack(alignment: .leading, spacing: 2) {
-                        Text("Last PR")
+                        Text("PR Weight")
                             .font(.caption2)
                             .foregroundStyle(.secondary)
                         if summary.prWeight > 0 {
@@ -275,10 +309,27 @@ struct ExerciseProgressRow: View {
                 .font(.caption)
                 .foregroundStyle(.tertiary)
                 .padding(.trailing, 14)
+                .accessibilityHidden(true)
         }
         .frame(maxWidth: .infinity)
-        .glassBackground()
+        // Clip before adding glass. Inside the list's GlassEffectContainer, a clipShape
+        // applied after the glass left the accent bar's corners unclipped.
         .clipShape(RoundedRectangle(cornerRadius: 20))
+        .glassBackground()
+        .contentShape(Rectangle())
+    }
+
+    /// Everything the row shows, such as "Bench Press, Chest, PR weight 225 pounds, 42 sets".
+    static func accessibilityLabel(
+        for exercise: Exercise,
+        summary: ExerciseProgressSummary,
+        unit: WeightUnit
+    ) -> String {
+        let record = summary.prWeight > 0
+            ? "PR weight \(summary.prWeight.formattedWeight(unit: unit)) \(unit.spokenName)"
+            : "No PR yet"
+        let sets = "\(summary.setCount) \(summary.setCount == 1 ? "set" : "sets")"
+        return "\(exercise.name), \(exercise.muscleGroup.rawValue), \(record), \(sets)"
     }
 }
 
@@ -292,7 +343,6 @@ struct ExerciseProgressView: View {
     @State private var viewModel = ProgressViewModel()
     @State private var showingQuickLog = false
     @State private var setToEdit: LoggedSet?
-    @Namespace private var pickerNamespace
     @AppStorage("weightUnit") private var weightUnit: WeightUnit = .lbs
     @Environment(\.locale) private var locale
 
@@ -307,7 +357,9 @@ struct ExerciseProgressView: View {
                         .tracking(-0.5)
                         .frame(maxWidth: .infinity, alignment: .leading)
                     statsCard(pr: metrics.personalRecord, totalVol: metrics.totalVolume)
-                    timeRangePicker
+                    TimeRangePicker(selection: viewModel.timeRange, identifierPrefix: "progress.range") { range in
+                        viewModel.updateTimeRange(range)
+                    }
                     ExerciseProgressChartCard(chartPoints: metrics.chartPoints, weightUnit: weightUnit)
                         .equatable()
                     setHistoryCard(
@@ -322,13 +374,7 @@ struct ExerciseProgressView: View {
         }
         .navigationTitle(exercise.name)
         .titleDisplayMode(.inline)
-        .background {
-            LinearGradient(
-                colors: [Color(red: 0.04, green: 0.06, blue: 0.18), Color.black],
-                startPoint: .top, endPoint: .bottom
-            )
-            .ignoresSafeArea()
-        }
+        .appBackground()
         .safeAreaInset(edge: .bottom, alignment: .trailing) {
             Button {
                 showingQuickLog = true
@@ -337,21 +383,11 @@ struct ExerciseProgressView: View {
                     .font(.title2.bold())
                     .foregroundStyle(.blue)
                     .frame(width: 58, height: 58)
-                    .background(Color.white.opacity(0.06), in: Circle())
-                    .overlay(
-                        Circle().strokeBorder(
-                            LinearGradient(
-                                colors: [.white.opacity(0.45), .blue.opacity(0.15)],
-                                startPoint: .topLeading,
-                                endPoint: .bottomTrailing
-                            ),
-                            lineWidth: 0.75
-                        )
-                    )
-                    .shadow(color: .blue.opacity(0.25), radius: 20, x: 0, y: 8)
-                    .shadow(color: .black.opacity(0.3), radius: 6, x: 0, y: 2)
+                    .contentShape(Circle())
             }
+            .buttonStyle(FABButtonStyle())
             .accessibilityLabel("Log Set")
+            .accessibilityIdentifier("progress.logSet")
             .padding(.trailing, 20)
             .padding(.bottom, 12)
         }
@@ -406,38 +442,13 @@ struct ExerciseProgressView: View {
                     surface: .embedded
                 )
                 StatBadge(
-                    value: totalVol > 0 ? String(format: "%.0f", weightUnit.display(totalVol)) : "\u{2014}",
+                    value: totalVol > 0
+                        ? weightUnit.display(totalVol).formatted(.number.precision(.fractionLength(0)))
+                        : "\u{2014}",
                     label: "Total Vol. (\(weightUnit.symbol))",
                     surface: .embedded
                 )
             }
-        }
-    }
-
-    private var timeRangePicker: some View {
-        GlassCard(padding: 8) {
-            HStack(spacing: 0) {
-                ForEach(ProgressViewModel.TimeRange.allCases, id: \.self) { range in
-                    Button {
-                        viewModel.updateTimeRange(range)
-                    } label: {
-                        Text(range.rawValue)
-                            .font(.subheadline.bold())
-                            .frame(maxWidth: .infinity)
-                            .frame(minHeight: 44)
-                            .foregroundStyle(viewModel.timeRange == range ? Color.white : Color.secondary.opacity(0.7))
-                            .background {
-                                if viewModel.timeRange == range {
-                                    RoundedRectangle(cornerRadius: 10)
-                                        .fill(Color.blue)
-                                        .matchedGeometryEffect(id: "pickerPill", in: pickerNamespace)
-                                }
-                            }
-                    }
-                    .buttonStyle(.plain)
-                }
-            }
-            .animation(.spring(response: 0.3, dampingFraction: 0.75), value: viewModel.timeRange)
         }
     }
 
@@ -458,21 +469,27 @@ struct ExerciseProgressView: View {
                 } else {
                     VStack(spacing: 0) {
                     ForEach(recentSets) { set in
-                        HStack {
-                            Text(set.completedAt.formatted(.dateTime.month(.abbreviated).day()))
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                                .frame(width: 50, alignment: .leading)
-                            Text(set.weight == 0 ? "Bodyweight" : "\(set.weight.formattedWeight(unit: weightUnit)) \(weightUnit.symbol)")
-                                .font(.subheadline)
-                            Spacer()
-                            Text("\u{d7} \(set.reps)")
-                                .font(.subheadline.bold())
-                                .foregroundStyle(.blue)
+                        Button {
+                            setToEdit = set
+                        } label: {
+                            HStack {
+                                Text(set.completedAt.formatted(.dateTime.month(.abbreviated).day()))
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                                    .frame(width: 50, alignment: .leading)
+                                Text(set.weight == 0 ? "Bodyweight" : "\(set.weight.formattedWeight(unit: weightUnit)) \(weightUnit.symbol)")
+                                    .font(.subheadline)
+                                Spacer()
+                                Text("\u{d7} \(set.reps)")
+                                    .font(.subheadline.bold())
+                                    .foregroundStyle(.blue)
+                            }
+                            .frame(minHeight: 44)
+                            .contentShape(Rectangle())
                         }
-                        .frame(minHeight: 44)
-                        .contentShape(Rectangle())
-                        .onTapGesture { setToEdit = set }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel(set.spokenSummary(unit: weightUnit, dateStyle: .dateTime.month(.abbreviated).day()))
+                        .accessibilityHint("Edits this set")
                         .contextMenu {
                             Button {
                                 setToEdit = set
@@ -589,375 +606,10 @@ struct ExerciseProgressChartCard: View, Equatable {
                         }
                     }
                     .chartYAxisLabel("Weight (\(weightUnit.symbol))")
-                    .accessibilityLabel("Maximum weight over time in \(weightUnit == .lbs ? "pounds" : "kilograms")")
+                    .accessibilityLabel("Maximum weight over time in \(weightUnit.spokenName)")
                     .frame(height: 200)
                 }
             }
-        }
-    }
-}
-
-// MARK: - Quick Log Sheet
-
-struct QuickLogSheet: View {
-    @Environment(\.modelContext) private var context
-    @Environment(\.dismiss) private var dismiss
-
-    let exercise: Exercise
-    let viewModel: ProgressViewModel
-
-    @State private var weightDraft: WeightDraft
-    @State private var reps: Int
-    @State private var date: Date = .now
-    @State private var saveAlert: PersistenceAlert?
-    @State private var showingSaveAlert = false
-    @State private var didLogSet = false
-    @FocusState private var isWeightFieldFocused: Bool
-
-    /// Captures the display unit and locale when the sheet opens, and prefills from the
-    /// latest set so an untouched weight logs the same stored value.
-    init(exercise: Exercise, viewModel: ProgressViewModel, latestSet: LoggedSet?, weightInput: WeightInput) {
-        self.exercise = exercise
-        self.viewModel = viewModel
-        let prefilledWeight = latestSet.flatMap { $0.weight > 0 ? $0.weight : nil }
-        _weightDraft = State(initialValue: WeightDraft(input: weightInput, pounds: prefilledWeight))
-        _reps = State(initialValue: latestSet?.reps ?? 5)
-    }
-
-    private var blankWeight: WeightDraft.BlankValue {
-        exercise.equipment == .bodyweight ? .zero : .required
-    }
-
-    private var resolvedWeight: Double? {
-        guard case .success(let pounds?) = weightDraft.resolvedPounds(whenBlank: blankWeight) else { return nil }
-        return pounds
-    }
-
-    private var weightMessage: String? {
-        weightDraft.validationMessage(whenBlank: blankWeight)
-    }
-
-    var body: some View {
-        NavigationStack {
-            ScrollView {
-                VStack(spacing: 24) {
-                    HStack(spacing: 12) {
-                        RoundedRectangle(cornerRadius: 2)
-                            .fill(exercise.muscleGroup.color)
-                            .frame(width: 4, height: 40)
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(exercise.name)
-                                .font(.headline)
-                            Text(exercise.muscleGroup.rawValue + " \u{b7} " + exercise.equipment.rawValue)
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        }
-                        Spacer()
-                    }
-                    .padding(14)
-                    .glassBackground()
-
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text("Weight (\(weightDraft.input.unit.symbol))")
-                            .font(.subheadline.bold())
-                            .foregroundStyle(.secondary)
-                        TextField("0", text: $weightDraft.text)
-                            .keyboardType(.decimalPad)
-                            .focused($isWeightFieldFocused)
-                            .font(.title2.bold())
-                            .multilineTextAlignment(.center)
-                            .padding(16)
-                            .accessibilityIdentifier("quickLog.weight")
-                            .background(Color.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 14))
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 14)
-                                    .strokeBorder(
-                                        weightMessage == nil ? Color.white.opacity(0.1) : Color.red.opacity(0.7),
-                                        lineWidth: weightMessage == nil ? 0.5 : 1
-                                    )
-                            )
-                        if let weightMessage {
-                            WeightValidationMessage(weightMessage)
-                        }
-                    }
-
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text("Reps")
-                            .font(.subheadline.bold())
-                            .foregroundStyle(.secondary)
-                        HStack {
-                            Button {
-                                if reps > 1 { reps -= 1 }
-                            } label: {
-                                Image(systemName: "minus")
-                                    .font(.title3.bold())
-                                    .frame(maxWidth: .infinity)
-                                    .padding(.vertical, 16)
-                                    .background(Color.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 14))
-                            }
-                            .buttonStyle(.plain)
-                            .accessibilityLabel("Decrease reps")
-
-                            Text("\(reps)")
-                                .font(.title.bold())
-                                .frame(maxWidth: .infinity)
-
-                            Button {
-                                reps += 1
-                            } label: {
-                                Image(systemName: "plus")
-                                    .font(.title3.bold())
-                                    .frame(maxWidth: .infinity)
-                                    .padding(.vertical, 16)
-                                    .background(Color.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 14))
-                            }
-                            .buttonStyle(.plain)
-                            .accessibilityLabel("Increase reps")
-                        }
-                    }
-
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text("Date")
-                            .font(.subheadline.bold())
-                            .foregroundStyle(.secondary)
-                        DatePicker("", selection: $date, in: ...Date.now, displayedComponents: .date)
-                            .datePickerStyle(.compact)
-                            .labelsHidden()
-                            .padding(14)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .background(Color.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 14))
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 14)
-                                    .strokeBorder(.white.opacity(0.1), lineWidth: 0.5)
-                            )
-                    }
-                }
-                .padding(20)
-            }
-            .scrollBounceBehavior(.basedOnSize)
-            .scrollDismissesKeyboard(.interactively)
-            .safeAreaBar(edge: .bottom) {
-                PinnedActionBar(isFieldFocused: $isWeightFieldFocused) {
-                    PrimaryButton("Log Set", icon: "checkmark") {
-                        logSet()
-                    }
-                    .disabled(resolvedWeight == nil)
-                }
-            }
-            .background {
-                LinearGradient(
-                    colors: [Color(red: 0.04, green: 0.06, blue: 0.18), Color.black],
-                    startPoint: .top, endPoint: .bottom
-                )
-                .ignoresSafeArea()
-            }
-            .navigationTitle("Log Set")
-            .titleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") { dismiss() }
-                        .foregroundStyle(.secondary)
-                }
-            }
-        }
-        .persistenceAlert(isPresented: $showingSaveAlert, alert: saveAlert)
-    }
-
-    private func logSet() {
-        // Ignore extra taps while the sheet closes after a successful log.
-        guard !didLogSet, let weight = resolvedWeight else { return }
-
-        switch viewModel.logSet(for: exercise, reps: reps, weight: weight, completedAt: date, context: context) {
-        case .success:
-            didLogSet = true
-            UINotificationFeedbackGenerator().notificationOccurred(.success)
-            dismiss()
-        case .failure(let error):
-            saveAlert = PersistenceAlert(title: "Couldn't Log Set", error: error)
-            showingSaveAlert = true
-        }
-    }
-}
-
-// MARK: - Edit Logged Set Sheet
-
-struct EditLoggedSetSheet: View {
-    @Environment(\.modelContext) private var context
-    @Environment(\.dismiss) private var dismiss
-    let set: LoggedSet
-    let viewModel: ProgressViewModel
-
-    @State private var weightDraft: WeightDraft
-    @State private var reps: Int
-    @State private var date: Date
-    @State private var saveAlert: PersistenceAlert?
-    @State private var showingSaveAlert = false
-    @FocusState private var isWeightFieldFocused: Bool
-
-    /// Captures the display unit and locale when the sheet opens. An untouched weight
-    /// saves the set's original stored value.
-    init(set: LoggedSet, viewModel: ProgressViewModel, weightInput: WeightInput) {
-        self.set = set
-        self.viewModel = viewModel
-        _weightDraft = State(initialValue: WeightDraft(
-            input: weightInput,
-            pounds: set.weight,
-            blankWhenZero: set.exercise?.equipment == .bodyweight
-        ))
-        _reps = State(initialValue: set.reps)
-        _date = State(initialValue: set.completedAt)
-    }
-
-    private var blankWeight: WeightDraft.BlankValue {
-        self.set.exercise?.equipment == .bodyweight ? .zero : .required
-    }
-
-    private var resolvedWeight: Double? {
-        guard case .success(let pounds?) = weightDraft.resolvedPounds(whenBlank: blankWeight) else { return nil }
-        return pounds
-    }
-
-    private var weightMessage: String? {
-        weightDraft.validationMessage(whenBlank: blankWeight)
-    }
-
-    var body: some View {
-        NavigationStack {
-            ScrollView {
-                VStack(spacing: 24) {
-                    if let exercise = set.exercise {
-                        HStack(spacing: 12) {
-                            RoundedRectangle(cornerRadius: 2)
-                                .fill(exercise.muscleGroup.color)
-                                .frame(width: 4, height: 40)
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(exercise.name)
-                                    .font(.headline)
-                                Text(exercise.muscleGroup.rawValue + " \u{b7} " + exercise.equipment.rawValue)
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                            }
-                            Spacer()
-                        }
-                        .padding(14)
-                        .glassBackground()
-                    }
-
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text("Weight (\(weightDraft.input.unit.symbol))")
-                            .font(.subheadline.bold())
-                            .foregroundStyle(.secondary)
-                        TextField("0", text: $weightDraft.text)
-                            .keyboardType(.decimalPad)
-                            .focused($isWeightFieldFocused)
-                            .font(.title2.bold())
-                            .multilineTextAlignment(.center)
-                            .padding(16)
-                            .accessibilityIdentifier("editSet.weight")
-                            .background(Color.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 14))
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 14)
-                                    .strokeBorder(
-                                        weightMessage == nil ? Color.white.opacity(0.1) : Color.red.opacity(0.7),
-                                        lineWidth: weightMessage == nil ? 0.5 : 1
-                                    )
-                            )
-                        if let weightMessage {
-                            WeightValidationMessage(weightMessage)
-                        }
-                    }
-
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text("Reps")
-                            .font(.subheadline.bold())
-                            .foregroundStyle(.secondary)
-                        HStack {
-                            Button {
-                                if reps > 1 { reps -= 1 }
-                            } label: {
-                                Image(systemName: "minus")
-                                    .font(.title3.bold())
-                                    .frame(maxWidth: .infinity)
-                                    .padding(.vertical, 16)
-                                    .background(Color.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 14))
-                            }
-                            .buttonStyle(.plain)
-                            .accessibilityLabel("Decrease reps")
-
-                            Text("\(reps)")
-                                .font(.title.bold())
-                                .frame(maxWidth: .infinity)
-
-                            Button {
-                                reps += 1
-                            } label: {
-                                Image(systemName: "plus")
-                                    .font(.title3.bold())
-                                    .frame(maxWidth: .infinity)
-                                    .padding(.vertical, 16)
-                                    .background(Color.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 14))
-                            }
-                            .buttonStyle(.plain)
-                            .accessibilityLabel("Increase reps")
-                        }
-                    }
-
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text("Date")
-                            .font(.subheadline.bold())
-                            .foregroundStyle(.secondary)
-                        DatePicker("", selection: $date, in: ...Date.now, displayedComponents: .date)
-                            .datePickerStyle(.compact)
-                            .labelsHidden()
-                            .padding(14)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .background(Color.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 14))
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 14)
-                                    .strokeBorder(.white.opacity(0.1), lineWidth: 0.5)
-                            )
-                    }
-                }
-                .padding(20)
-            }
-            .scrollBounceBehavior(.basedOnSize)
-            .scrollDismissesKeyboard(.interactively)
-            .safeAreaBar(edge: .bottom) {
-                PinnedActionBar(isFieldFocused: $isWeightFieldFocused) {
-                    PrimaryButton("Save Changes", icon: "checkmark") {
-                        saveChanges()
-                    }
-                    .disabled(resolvedWeight == nil)
-                }
-            }
-            .background {
-                LinearGradient(
-                    colors: [Color(red: 0.04, green: 0.06, blue: 0.18), Color.black],
-                    startPoint: .top, endPoint: .bottom
-                )
-                .ignoresSafeArea()
-            }
-            .navigationTitle("Edit Set")
-            .titleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") { dismiss() }
-                        .foregroundStyle(.secondary)
-                }
-            }
-        }
-        .persistenceAlert(isPresented: $showingSaveAlert, alert: saveAlert)
-    }
-
-    private func saveChanges() {
-        guard let weight = resolvedWeight else { return }
-
-        switch viewModel.updateSet(set, reps: reps, weight: weight, completedAt: date, context: context) {
-        case .success:
-            dismiss()
-        case .failure(let error):
-            saveAlert = PersistenceAlert(title: "Couldn't Save Set", error: error)
-            showingSaveAlert = true
         }
     }
 }

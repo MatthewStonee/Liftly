@@ -15,13 +15,14 @@ enum DebugUITestFixture {
         case missingExerciseSeed
     }
 
+    /// Reads `-LiftlyUITestFixture <reorder|history|firstRun> <id>`.
     static var current: Configuration? {
         let arguments = ProcessInfo.processInfo.arguments
         guard let index = arguments.firstIndex(of: "-LiftlyUITestFixture"),
               arguments.indices.contains(index + 2) else { return nil }
         let name = arguments[index + 1]
         let id = arguments[index + 2]
-        guard ["reorder", "history"].contains(name),
+        guard ["reorder", "history", "firstRun"].contains(name),
               !id.isEmpty,
               id.unicodeScalars.allSatisfy({ CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "-")).contains($0) })
         else { return nil }
@@ -60,6 +61,16 @@ enum DebugUITestFixture {
     }
 
     private static func seed(_ name: String, in context: ModelContext) throws {
+        guard name != "firstRun" else {
+            // A new user's store: the exercise library and no programs.
+            for entry in ExerciseLibrary.seed {
+                context.insert(Exercise(
+                    name: entry.name, muscleGroup: entry.muscleGroup, equipment: entry.equipment
+                ))
+            }
+            return
+        }
+
         let program = Program(name: name == "reorder" ? "UI Reorder" : "UI History")
         program.isActive = true
         context.insert(program)

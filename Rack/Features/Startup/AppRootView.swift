@@ -21,14 +21,7 @@ struct AppRootView: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background {
-            LinearGradient(
-                colors: [Color(red: 0.04, green: 0.06, blue: 0.18), Color.black],
-                startPoint: .top,
-                endPoint: .bottom
-            )
-            .ignoresSafeArea()
-        }
+        .appBackground()
         .task {
             await dataStore.open()
         }
@@ -75,7 +68,18 @@ private struct LoadedAppView: View {
                 }
             }
             .onChange(of: scenePhase) { _, phase in
-                deletionCoordinator.setActive(phase == .active)
+                switch phase {
+                case .active:
+                    deletionCoordinator.setActive(true)
+                case .background:
+                    // Undo can't be offered while the app isn't visible, and iOS may
+                    // terminate it, so save pending deletions now.
+                    deletionCoordinator.setActive(false)
+                    deletionCoordinator.commitPendingNow()
+                default:
+                    // Brief interruptions, like Control Center, keep the Undo window.
+                    deletionCoordinator.setActive(false)
+                }
             }
             .task(priority: .utility) {
                 #if DEBUG

@@ -56,9 +56,11 @@ final class ProgressViewModel {
 
     private static let logger = Logger(subsystem: "com.matthewstone.liftly", category: "Progress")
 
-    var selectedExercise: Exercise?
     var timeRange: TimeRange = .threeMonths
     var overview = ProgressOverview()
+    /// Whether an overview load has finished, so Progress doesn't show an empty state
+    /// while its first load is still running.
+    private(set) var hasLoadedOverview = false
     var exerciseMetrics = ExerciseProgressMetrics()
     @ObservationIgnored private var allSetsAscending: [LoggedSet] = []
     @ObservationIgnored private var isShowingExerciseDetail = false
@@ -111,6 +113,7 @@ final class ProgressViewModel {
     ) async {
         guard let activeProgram else {
             overview = ProgressOverview()
+            hasLoadedOverview = true
             return
         }
 
@@ -132,6 +135,7 @@ final class ProgressViewModel {
 
         guard !programExercises.isEmpty else {
             overview = ProgressOverview()
+            hasLoadedOverview = true
             return
         }
 
@@ -196,8 +200,14 @@ final class ProgressViewModel {
                 summariesByExerciseID: result.summaries,
                 weeklyVolume: result.weeklyVolume
             )
+            hasLoadedOverview = true
         } catch {
             Self.logger.error("Failed to refresh progress overview: \(String(describing: error), privacy: .public)")
+            // Keep an earlier overview's stats; a first load still lists the exercises.
+            if !hasLoadedOverview {
+                overview = ProgressOverview(programExercises: programExercises)
+                hasLoadedOverview = true
+            }
         }
     }
 
@@ -338,19 +348,9 @@ final class ProgressViewModel {
         return result.map { _ in }
     }
 
-    /// Deletes a set and promotes the next personal record for its rep count in the same save.
-    func deleteSet(_ set: LoggedSet, context: ModelContext) -> Result<Void, PersistenceCommandError> {
-        guard !set.isDeleted else { return .success(()) }
-        let exerciseID = set.exercise?.id
-
-        let result = commandRunner.perform(in: context) { context in
-            _ = try Self.deleteSetsInCommand([set], context: context)
-        }
-        if case .success = result, let exerciseID { LoggedSetChange.publish(exerciseIDs: [exerciseID]) }
-        return result
-    }
-
-    /// Used by the app deletion batch so all requested sets and their PR flags save together.
+    /// Deletes sets and promotes the next personal record for each affected rep count.
+    /// `DeletionCoordinator` calls this inside its batch command, so every requested set
+    /// and its PR flags save together.
     @discardableResult
     static func deleteSetsInCommand(_ sets: [LoggedSet], context: ModelContext) throws -> Set<UUID> {
         let liveSets = sets.filter { !$0.isDeleted }
@@ -504,9 +504,15 @@ nonisolated func isPreferredPersonalRecordCandidate(_ candidate: LoggedSet, over
 
 @ModelActor
 actor PersonalRecordBackfillActor {
+    private static let logger = Logger(
+        subsystem: "com.matthewstone.liftly",
+        category: "StartupMaintenance"
+    )
+
     /// One-time backfill: marks the correct PR set per exercise per rep count.
-    func backfillIfNeeded() {
-        guard !UserDefaults.standard.bool(forKey: "prBackfillComplete") else { return }
+    /// - Parameter defaults: Where completion is recorded. Tests pass their own.
+    func backfillIfNeeded(defaults: UserDefaults = .standard) {
+        guard !defaults.bool(forKey: "prBackfillComplete") else { return }
         let descriptor = FetchDescriptor<LoggedSet>(
             sortBy: [SortDescriptor(\LoggedSet.completedAt)]
         )
@@ -537,9 +543,10 @@ actor PersonalRecordBackfillActor {
             if didChange {
                 try modelContext.save()
             }
-            UserDefaults.standard.set(true, forKey: "prBackfillComplete")
+            defaults.set(true, forKey: "prBackfillComplete")
         } catch {
             modelContext.rollback()
+            Self.logger.error("Personal record backfill failed: \(String(describing: error), privacy: .public)")
         }
     }
 }

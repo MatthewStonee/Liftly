@@ -55,7 +55,7 @@ struct P2RegressionTests {
         #expect(try TestStore.savedModels(Program.self, in: container).count == 2)
     }
 
-    @Test func backgroundPauseAndResumeRetainsBatch() throws {
+    @Test func inactivePauseAndResumeRetainsBatch() throws {
         let program = try Fixtures.savedProgram(in: context)
         let batch = coordinator()
         batch.request(program)
@@ -70,6 +70,67 @@ struct P2RegressionTests {
         let resumedGeneration = try #require(batch.generation)
         batch.expire(generation: resumedGeneration)
         #expect(try TestStore.savedModels(Program.self, in: container).isEmpty)
+    }
+
+    @Test func backgroundCommitsThePausedBatch() throws {
+        let exercise = try Fixtures.savedExercise(in: context)
+        let exerciseID = exercise.id
+        let record = try Fixtures.savedSet(for: exercise, reps: 5, weight: 100, daysAgo: 1, isPersonalRecord: true, in: context)
+        let runnerUp = try Fixtures.savedSet(for: exercise, reps: 5, weight: 90, daysAgo: 2, isPersonalRecord: false, in: context)
+        let program = try Fixtures.savedProgram(in: context)
+        let batch = coordinator()
+        var notified = false
+        let token = NotificationCenter.default.addObserver(
+            forName: LoggedSetChange.didCommit, object: nil, queue: nil
+        ) { notification in
+            if LoggedSetChange.affects(exerciseID, notification: notification) { notified = true }
+        }
+        defer { NotificationCenter.default.removeObserver(token) }
+
+        batch.request(program)
+        batch.request(record)
+        // The app becomes inactive, then moves to the background.
+        batch.setActive(false)
+        batch.commitPendingNow()
+
+        #expect(batch.pendingCount == 0)
+        #expect(!batch.showsToast)
+        #expect(try TestStore.savedModels(Program.self, in: container).isEmpty)
+        #expect(try TestStore.savedModels(LoggedSet.self, in: container).map(\.id) == [runnerUp.id])
+        #expect(runnerUp.isPersonalRecord)
+        #expect(notified)
+
+        // Returning to the foreground finds nothing left to resume.
+        batch.setActive(true)
+        #expect(batch.generation == nil)
+    }
+
+    @Test func failedBackgroundCommitRestoresItemsAndQueuesTheAlert() throws {
+        let program = try Fixtures.savedProgram(in: context, workoutNames: ["Push"])
+        let saves = SaveSwitch(isFailing: true)
+        let batch = coordinator(runner: saves.runner)
+
+        batch.request(program)
+        batch.setActive(false)
+        batch.commitPendingNow()
+
+        #expect(saves.saveAttempts == 1)
+        #expect(batch.pendingCount == 0)
+        #expect(!program.isDeleted)
+        #expect(try TestStore.savedModels(Program.self, in: container).count == 1)
+        #expect(try TestStore.savedModels(WorkoutTemplate.self, in: container).count == 1)
+        #expect(alerts.currentAlert?.title == "Couldn't Delete Items")
+    }
+
+    @Test func backgroundWithNothingPendingDoesNotSave() {
+        let saves = SaveSwitch()
+        let batch = coordinator(runner: saves.runner)
+
+        batch.setActive(false)
+        batch.commitPendingNow()
+
+        #expect(saves.saveAttempts == 0)
+        #expect(alerts.currentAlert == nil)
     }
 
     @Test func undoWhileInactiveDoesNotLeaveFutureBatchesPaused() throws {
@@ -299,7 +360,9 @@ struct P2RegressionTests {
         #expect(added.orderIndex == 3)
 
         let middle = program.sortedWorkouts[1]
-        #expect(model.deleteWorkout(middle, context: context).failure == nil)
+        let batch = coordinator()
+        batch.request(middle)
+        batch.expire(generation: try #require(batch.generation))
         #expect(program.sortedWorkouts.map(\.orderIndex) == [0, 1, 2])
         let afterDelete = try model.addWorkout(named: "Five", to: program, context: context).get()
         #expect(afterDelete.orderIndex == 3)
@@ -834,7 +897,9 @@ struct ExerciseHistoryViewModelTests {
         #expect(model.rows.map(\.id) == [old.id])
         #expect(model.rows.first?.reps == 6)
 
-        #expect(progress.deleteSet(old, context: context).failure == nil)
+        let batch = pendingDeletionCoordinator(for: context)
+        batch.request(old)
+        batch.expire(generation: try #require(batch.generation))
         model.refresh(exerciseID: exercise.id, context: context, excluding: [])
         #expect(model.rows.isEmpty)
         #expect(!model.hasAnyHistory)
