@@ -135,10 +135,7 @@ struct ProgramDetailView: View {
 
     private func programHero(counts: ProgramCounts) -> some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("PROGRAM")
-                .font(.caption.bold())
-                .tracking(2)
-                .foregroundStyle(.blue)
+            programHeading
 
             Text(program.name)
                 .font(.system(size: 34, weight: .black))
@@ -167,33 +164,63 @@ struct ProgramDetailView: View {
             }
             .padding(.top, 4)
 
-            activeStatus
+            if !program.isActive {
+                setActiveButton
+            }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.top, 4)
     }
 
-    /// Progress tracks only the active program, so activating one is a visible action.
     @ViewBuilder
-    private var activeStatus: some View {
+    private var programHeading: some View {
         if program.isActive {
-            Label("Active Program", systemImage: "checkmark.circle.fill")
-                .font(.subheadline.bold())
-                .foregroundStyle(.blue)
-                .frame(minHeight: 44)
-        } else {
-            Button {
-                setProgramActive()
-            } label: {
-                Label("Set as Active", systemImage: "checkmark.circle")
-                    .font(.subheadline.bold())
+            ViewThatFits(in: .horizontal) {
+                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                    programLabel
+                    Spacer(minLength: 8)
+                    activeIndicator
+                }
+
+                VStack(alignment: .leading, spacing: 4) {
+                    programLabel
+                    activeIndicator
+                }
             }
-            .buttonStyle(.glass)
-            .controlSize(.large)
-            .disabled(isReorderMode || showingAddWorkout)
-            .accessibilityHint("Tracks this program's exercises on the Progress tab")
-            .accessibilityIdentifier("program.setActive")
+        } else {
+            programLabel
         }
+    }
+
+    private var programLabel: some View {
+        Text("PROGRAM")
+            .font(.caption.bold())
+            .tracking(2)
+            .foregroundStyle(.blue)
+            .fixedSize(horizontal: true, vertical: false)
+    }
+
+    private var activeIndicator: some View {
+        Label("Active", systemImage: "checkmark.circle.fill")
+            .font(.caption.bold())
+            .foregroundStyle(.blue)
+            .fixedSize(horizontal: true, vertical: false)
+            .accessibilityLabel("Active Program")
+    }
+
+    /// Progress tracks only the active program, so activating one is a visible action.
+    private var setActiveButton: some View {
+        Button {
+            setProgramActive()
+        } label: {
+            Label("Set as Active", systemImage: "checkmark.circle")
+                .font(.subheadline.bold())
+        }
+        .buttonStyle(.glass)
+        .controlSize(.large)
+        .disabled(isReorderMode || showingAddWorkout)
+        .accessibilityHint("Tracks this program's exercises on the Progress tab")
+        .accessibilityIdentifier("program.setActive")
     }
 
     private var viewModePicker: some View {
