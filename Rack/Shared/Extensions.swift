@@ -44,12 +44,15 @@ extension Double {
 }
 
 extension LoggedSet {
-    /// How VoiceOver reads a set, such as "Sep 12, 225 pounds, 5 reps".
+    /// How VoiceOver reads a set, such as "Sep 12, 225 pounds, 5 reps", adding
+    /// "personal record for 5 reps" when it holds the record for its rep count.
     func spokenSummary(unit: WeightUnit, dateStyle: Date.FormatStyle) -> String {
         let weightText = weight == 0
             ? "Bodyweight"
             : "\(weight.formattedWeight(unit: unit)) \(unit.spokenName)"
-        return "\(completedAt.formatted(dateStyle)), \(weightText), \(reps) \(reps == 1 ? "rep" : "reps")"
+        let repsText = "\(reps) \(reps == 1 ? "rep" : "reps")"
+        let summary = "\(completedAt.formatted(dateStyle)), \(weightText), \(repsText)"
+        return isPersonalRecord ? "\(summary), personal record for \(repsText)" : summary
     }
 }
 

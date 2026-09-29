@@ -125,6 +125,9 @@ struct ExerciseHistoryView: View {
             HStack(alignment: .firstTextBaseline) {
                 Text(set.weight == 0 ? "Bodyweight" : "\(set.weight.formattedWeight(unit: weightUnit)) \(weightUnit.symbol)")
                     .font(.subheadline.bold())
+                if set.isPersonalRecord {
+                    PersonalRecordBadge()
+                }
                 Spacer(minLength: 8)
                 Text("× \(set.reps)")
                     .font(.subheadline.bold())

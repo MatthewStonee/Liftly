@@ -12,7 +12,12 @@ struct QuickLogSheet: View {
 
     @State private var weightDraft: WeightDraft
     @State private var reps: Int
-    @State private var date: Date = .now
+    @State private var date: Date
+    /// The prefilled reps and date, kept in state so they survive the view being re-created.
+    /// The date picker edits only the day, and an untouched picker can still rewrite the
+    /// exact time, so changes compare days.
+    @State private var initialReps: Int
+    @State private var initialDate: Date
     @State private var saveAlert: PersistenceAlert?
     @State private var showingSaveAlert = false
     @State private var didLogSet = false
@@ -24,7 +29,16 @@ struct QuickLogSheet: View {
         self.viewModel = viewModel
         let prefilledWeight = latestSet.flatMap { $0.weight > 0 ? $0.weight : nil }
         _weightDraft = State(initialValue: WeightDraft(input: weightInput, pounds: prefilledWeight))
-        _reps = State(initialValue: latestSet?.reps ?? 5)
+        let prefilledReps = latestSet?.reps ?? 5
+        _reps = State(initialValue: prefilledReps)
+        _initialReps = State(initialValue: prefilledReps)
+        let now = Date.now
+        _date = State(initialValue: now)
+        _initialDate = State(initialValue: now)
+    }
+
+    private var hasChanges: Bool {
+        weightDraft.hasChanges || reps != initialReps || !Calendar.current.isDate(date, inSameDayAs: initialDate)
     }
 
     private var blankWeight: WeightDraft.BlankValue {
@@ -52,6 +66,7 @@ struct QuickLogSheet: View {
             }
             .disabled(resolvedWeight == nil)
         }
+        .interactiveDismissDisabled(hasChanges)
         .persistenceAlert(isPresented: $showingSaveAlert, alert: saveAlert)
     }
 
@@ -105,6 +120,12 @@ struct EditLoggedSetSheet: View {
         self.set.exercise?.equipment == .bodyweight ? .zero : .required
     }
 
+    private var hasChanges: Bool {
+        weightDraft.hasChanges
+            || reps != self.set.reps
+            || !Calendar.current.isDate(date, inSameDayAs: self.set.completedAt)
+    }
+
     private var resolvedWeight: Double? {
         guard case .success(let pounds?) = weightDraft.resolvedPounds(whenBlank: blankWeight) else { return nil }
         return pounds
@@ -126,6 +147,7 @@ struct EditLoggedSetSheet: View {
             }
             .disabled(resolvedWeight == nil)
         }
+        .interactiveDismissDisabled(hasChanges)
         .persistenceAlert(isPresented: $showingSaveAlert, alert: saveAlert)
     }
 
@@ -216,6 +238,7 @@ private struct LoggedSetForm<PrimaryAction: View>: View {
             Text("Weight (\(weightDraft.input.unit.symbol))")
                 .font(.subheadline.bold())
                 .foregroundStyle(.secondary)
+                .accessibilityHidden(true) // The field carries its own label.
             TextField("0", text: $weightDraft.text)
                 .accessibilityLabel("Weight in \(weightDraft.input.unit.spokenName)")
                 .keyboardType(.decimalPad)
@@ -243,6 +266,7 @@ private struct LoggedSetForm<PrimaryAction: View>: View {
             Text("Reps")
                 .font(.subheadline.bold())
                 .foregroundStyle(.secondary)
+                .accessibilityHidden(true)
             HStack {
                 repsButton(systemImage: "minus", label: "Decrease reps") {
                     if reps > 1 { reps -= 1 }
@@ -255,6 +279,11 @@ private struct LoggedSetForm<PrimaryAction: View>: View {
                 repsButton(systemImage: "plus", label: "Increase reps") {
                     reps += 1
                 }
+            }
+            // One adjustable "Reps" control for VoiceOver, like a system stepper, instead
+            // of two buttons and a number that aren't tied to the label.
+            .accessibilityRepresentation {
+                Stepper("Reps", value: $reps, in: 1...999)
             }
         }
     }
@@ -275,10 +304,12 @@ private struct LoggedSetForm<PrimaryAction: View>: View {
 
     private var datePicker: some View {
         VStack(alignment: .leading, spacing: 8) {
+            // Stays visible to VoiceOver: the compact picker's button reads as "Date Picker"
+            // whatever label the picker is given.
             Text("Date")
                 .font(.subheadline.bold())
                 .foregroundStyle(.secondary)
-            DatePicker("", selection: $date, in: ...Date.now, displayedComponents: .date)
+            DatePicker("Date", selection: $date, in: ...Date.now, displayedComponents: .date)
                 .datePickerStyle(.compact)
                 .labelsHidden()
                 .padding(14)

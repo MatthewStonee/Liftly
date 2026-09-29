@@ -20,14 +20,15 @@ Liftly is an iPhone fitness and workout programming app built with SwiftUI. User
 - **User writes save explicitly.** Main-context autosave is off. Every create, edit, delete, and reorder goes through a view-model command built on `PersistenceCommandRunner.perform(in:_:)`, which refuses a dirty context, applies the change, saves once, and rolls back on failure. Commands that insert into a to-many relationship use `performInsert(in:refresh:_:)` instead: on iOS 27, rolling back such an insert leaves the parent's relationship unreadable and the next read crashes, so these save through a disposable context. Show returned errors with `.persistenceAlert(isPresented:alert:)`. Never mutate persisted models from views or bind form fields to model properties; keep drafts in `@State`.
 - **The schema stays CloudKit-compatible.** Every stored property needs a default value or must be optional, relationships must be optional, `@Attribute(.unique)` is not allowed, and changes must be additive. A violation makes the CloudKit store fail to open, and users silently drop to the local-only fallback.
 - **Startup never deletes or replaces the store.** `AppDataStore` tries CloudKit, then local-only at the same location, and otherwise shows a Retry screen. Maintenance starts only after the store opens.
+- **Duplicate library exercises merge into the oldest copy.** Startup maintenance (`ExerciseLibrary.reconcile`) keeps the oldest `createdAt`, then the smallest ID, and re-points plans and sets to it, so every device keeps the same copy however much it has synced. Never choose by local reference counts: two devices could each delete the other's survivor, and sets still syncing would lose their exercise.
 
 ## Shared Utilities
 Check `Rack/Shared/` and the feature's own folder before building a new component.
 
-- **Deletion**: request deletions with `DeletionCoordinator.request(_:)`; never delete immediately or schedule your own timer. The coordinator batches requests behind the Undo toast, pauses while the app is inactive, commits when the Undo window ends or the app moves to the background, and reports failures to `PersistenceAlertCenter`. It deletes programs, workout days, planned exercises, and logged sets; a new deletable type needs an `Identity` case and commit logic. Apply `.deletionUndoToast(deletionCoordinator)` to every sheet's root view so failures appear above that sheet.
+- **Deletion**: request deletions with `DeletionCoordinator.request(_:)`; never delete immediately or schedule your own timer. The coordinator batches requests behind the Undo toast, pauses while the app is inactive, commits when the Undo window ends or the app moves to the background, and reports failures to `PersistenceAlertCenter`. Each request is announced to VoiceOver, and the Undo window is 4 s, or 10 s while VoiceOver runs. It deletes programs, workout days, planned exercises, and logged sets; a new deletable type needs an `Identity` case and commit logic. Apply `.deletionUndoToast(deletionCoordinator)` to every sheet's root view so failures appear above that sheet.
 - **Navigation**: push with `NavigationLink(value:)` or a path append, and resolve screens in one `navigationDestination(for:)` at the stack root: `ProgramsRoute` (`ProgramsView.swift`) and `ProgressRoute` (`ProgressView.swift`).
 - **History**: `ExerciseHistoryViewModel` owns paging, refreshes, and the scroll anchor for `ExerciseHistoryView`; views never fetch sets themselves. Its doc comments describe the anchoring rules.
-- **Metrics**: set commands only save and publish `LoggedSetChange`; the screen showing metrics (`ExerciseProgressView`) refreshes them itself.
+- **Metrics**: set commands only save and publish `LoggedSetChange`; the screen showing metrics (`ExerciseProgressView`) refreshes them itself. A deletion refreshes it even while History covers it, so it never holds a deleted set.
 - **Components**: `TimeRangePicker`, `.appBackground()`, `GlassCard`, `PinnedActionBar` (a sheet's primary action above the keyboard), `WeightValidationMessage`, `ReorderableForEach`, and the Log Set / Edit Set sheets in `LoggedSetSheets.swift`.
 - **Haptics**: prefer `.sensoryFeedback`. Use `UINotificationFeedbackGenerator` only when the view dismisses in the same action (Quick Log), because a `.sensoryFeedback` trigger on a disappearing view may never fire.
 
@@ -38,6 +39,8 @@ Check `Rack/Shared/` and the feature's own folder before building a new componen
 - A view-destination `NavigationLink { Destination() }`, or a `navigationDestination(item:)` declared inside a pushed screen, can lock `NavigationStack` into an endless update loop on iOS 27. Use the route enums above.
 - Modifiers that react to a change (`.sensoryFeedback`, `.onChange`) only fire while their view exists; attach them to a view that outlives the value.
 - Apply `clipShape` before `.glassEffect`. Inside a `GlassEffectContainer`, a `clipShape` applied after the glass left the Progress row's accent bar unclipped.
+- On iOS 27, a `.foregroundStyle` on a y-axis `AxisValueLabel` stops Swift Charts from drawing the label at all; the default is already secondary.
+- A compact `DatePicker`'s button reads to VoiceOver as "Date Picker" whatever label the picker has, so keep its visible caption readable. An untouched picker can also rewrite the bound date's exact time: compare dates at the granularity the picker edits.
 
 ## Concurrency
 - Swift 5 language mode with `MainActor` as the default isolation and approachable concurrency. Code that runs on a `@ModelActor` (startup maintenance, the PR backfill) and the helpers it calls must be `nonisolated`.
@@ -48,6 +51,7 @@ Check `Rack/Shared/` and the feature's own folder before building a new componen
 - Build and test in the simulator after changes.
 - Don't add third-party dependencies without asking.
 - Don't hard-code exercise data; seed through `ExerciseLibrary`.
+- Declare any new required-reason API (such as UserDefaults, file timestamps, or disk space) in `Rack/PrivacyInfo.xcprivacy`; App Store uploads without the declaration are rejected.
 
 ## Testing
 Ask before adding a test target.

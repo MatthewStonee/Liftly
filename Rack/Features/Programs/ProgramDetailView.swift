@@ -138,7 +138,7 @@ struct ProgramDetailView: View {
             programHeading
 
             Text(program.name)
-                .font(.system(size: 34, weight: .black))
+                .font(.largeTitle.weight(.black))
                 .foregroundStyle(.white)
                 .tracking(-0.5)
 
@@ -242,7 +242,6 @@ struct ProgramDetailView: View {
             showAddWorkoutOverlay()
         }
         .disabled(isReorderMode)
-        .opacity(isReorderMode ? 0.45 : 1.0)
     }
 
     private var emptyWorkoutsState: some View {
@@ -252,6 +251,7 @@ struct ProgramDetailView: View {
                     .font(.system(size: 40))
                     .symbolRenderingMode(.hierarchical)
                     .foregroundStyle(.blue)
+                    .accessibilityHidden(true)
                 Text("No workout days yet")
                     .font(.subheadline.bold())
                 Text("Add workout days to build your program structure.")
@@ -330,7 +330,7 @@ private struct AddWorkoutOverlay: View {
     @FocusState private var isNameFocused: Bool
 
     private var trimmedName: String {
-        name.trimmingCharacters(in: .whitespaces)
+        name.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     var body: some View {
@@ -362,7 +362,6 @@ private struct AddWorkoutOverlay: View {
                     PrimaryButton("Add") {
                         submit()
                     }
-                    .opacity(trimmedName.isEmpty ? 0.4 : 1.0)
                     .disabled(trimmedName.isEmpty)
                 }
             }

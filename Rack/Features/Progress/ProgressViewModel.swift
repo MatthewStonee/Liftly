@@ -5,18 +5,25 @@ import OSLog
 enum LoggedSetChange {
     static let didCommit = Notification.Name("LiftlyLoggedSetsDidCommit")
     static let exerciseIDsKey = "exerciseIDs"
+    static let removedSetsKey = "removedSets"
 
-    static func publish(exerciseIDs: Set<UUID>) {
+    /// - Parameter removedSets: Whether the change deleted sets. A screen that still
+    ///   holds those sets must drop them right away, even while it's covered.
+    static func publish(exerciseIDs: Set<UUID>, removedSets: Bool = false) {
         guard !exerciseIDs.isEmpty else { return }
         NotificationCenter.default.post(
             name: didCommit,
             object: nil,
-            userInfo: [exerciseIDsKey: exerciseIDs]
+            userInfo: [exerciseIDsKey: exerciseIDs, removedSetsKey: removedSets]
         )
     }
 
     static func affects(_ exerciseID: UUID, notification: Notification) -> Bool {
         (notification.userInfo?[exerciseIDsKey] as? Set<UUID>)?.contains(exerciseID) == true
+    }
+
+    static func removedSets(_ notification: Notification) -> Bool {
+        notification.userInfo?[removedSetsKey] as? Bool == true
     }
 }
 
@@ -266,10 +273,15 @@ final class ProgressViewModel {
     }
 
     /// Refreshes as soon as a change to this exercise saves, so reopening Quick Log
-    /// prefills the latest set.
+    /// prefills the latest set. A deletion refreshes even while History covers the
+    /// screen, so the metrics never keep a set that no longer exists.
     func handleCommittedChange(_ notification: Notification, exercise: Exercise, context: ModelContext) {
         guard LoggedSetChange.affects(exercise.id, notification: notification) else { return }
-        refreshVisibleExerciseMetrics(for: exercise, context: context)
+        if LoggedSetChange.removedSets(notification) {
+            refreshExerciseMetrics(for: exercise, context: context)
+        } else {
+            refreshVisibleExerciseMetrics(for: exercise, context: context)
+        }
     }
 
     /// Skipped while History covers the detail screen, which refreshes when it appears again.

@@ -50,7 +50,6 @@ struct WorkoutTemplateDetailView: View {
                     showingExercisePicker = true
                 }
                 .disabled(isReorderMode)
-                .opacity(isReorderMode ? 0.45 : 1.0)
                 .padding(.top, 4)
             }
             .padding(.horizontal, 16)
@@ -119,6 +118,7 @@ struct WorkoutTemplateDetailView: View {
                     .font(.system(size: 40))
                     .symbolRenderingMode(.hierarchical)
                     .foregroundStyle(.blue)
+                    .accessibilityHidden(true)
                 Text("No exercises yet")
                     .font(.subheadline.bold())
                 Text("Add exercises to define this workout.")
@@ -261,6 +261,10 @@ struct RenameWorkoutDaySheet: View {
         _name = State(initialValue: workout.name)
     }
 
+    private var canSave: Bool {
+        !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
     var body: some View {
         NavigationStack {
             VStack(spacing: 20) {
@@ -278,10 +282,14 @@ struct RenameWorkoutDaySheet: View {
                         )
                         .autocorrectionDisabled()
                         .focused($isFocused)
+                        .submitLabel(.done)
+                        .onSubmit {
+                            if canSave { save() }
+                        }
                 }
                 Spacer()
                 PrimaryButton("Save") { save() }
-                    .disabled(name.trimmingCharacters(in: .whitespaces).isEmpty)
+                    .disabled(!canSave)
             }
             .padding(20)
             .appBackground()
@@ -297,6 +305,7 @@ struct RenameWorkoutDaySheet: View {
                 isFocused = true
             }
         }
+        .interactiveDismissDisabled(name != workout.name)
         .persistenceAlert(isPresented: $showingSaveAlert, alert: saveAlert)
     }
 
@@ -346,6 +355,16 @@ struct EditPlannedExerciseView: View {
 
     private var weightMessage: String? {
         weightDraft.validationMessage(whenBlank: .noWeight)
+    }
+
+    private var hasChanges: Bool {
+        let repRange = planned.repRange
+        return sets != planned.sets
+            || repTargetType != planned.repTargetType
+            || exactReps != planned.exactRepTarget
+            || rangeLowerBound != repRange.lowerBound
+            || rangeUpperBound != repRange.upperBound
+            || weightDraft.hasChanges
     }
 
     var body: some View {
@@ -414,6 +433,7 @@ struct EditPlannedExerciseView: View {
                 normalizeDraftRepTarget(for: newValue)
             }
         }
+        .interactiveDismissDisabled(hasChanges)
         .persistenceAlert(isPresented: $showingSaveAlert, alert: saveAlert)
     }
 

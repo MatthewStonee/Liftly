@@ -22,6 +22,10 @@ struct CreateProgramView: View {
 
     private var isEditing: Bool { existingProgram != nil }
 
+    private var hasChanges: Bool {
+        name != (existingProgram?.name ?? "") || description != (existingProgram?.programDescription ?? "")
+    }
+
     var body: some View {
         NavigationStack {
             VStack(spacing: 24) {
@@ -55,7 +59,7 @@ struct CreateProgramView: View {
                         createProgram()
                     }
                 }
-                .disabled(name.trimmingCharacters(in: .whitespaces).isEmpty)
+                .disabled(name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             }
             .padding(20)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -69,6 +73,7 @@ struct CreateProgramView: View {
                 }
             }
         }
+        .interactiveDismissDisabled(hasChanges)
         .persistenceAlert(isPresented: $showingSaveAlert, alert: saveAlert)
     }
 

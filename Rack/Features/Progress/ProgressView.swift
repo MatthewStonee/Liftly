@@ -147,8 +147,10 @@ struct ProgressTabView: View {
 
             HStack(alignment: .firstTextBaseline, spacing: 4) {
                 Text(weeklyVolumeText ?? "\u{2014}")
-                    .font(.system(size: 34, weight: .black))
+                    .font(.largeTitle.weight(.black))
                     .foregroundStyle(.white)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.6)
                 if weeklyVolumeText != nil {
                     Text(weightUnit.symbol)
                         .font(.title3)
@@ -352,7 +354,7 @@ struct ExerciseProgressView: View {
             GlassEffectContainer(spacing: 16) {
                 VStack(spacing: 16) {
                     Text(exercise.name)
-                        .font(.system(size: 34, weight: .black))
+                        .font(.largeTitle.weight(.black))
                         .foregroundStyle(.white)
                         .tracking(-0.5)
                         .frame(maxWidth: .infinity, alignment: .leading)
@@ -479,6 +481,9 @@ struct ExerciseProgressView: View {
                                     .frame(width: 50, alignment: .leading)
                                 Text(set.weight == 0 ? "Bodyweight" : "\(set.weight.formattedWeight(unit: weightUnit)) \(weightUnit.symbol)")
                                     .font(.subheadline)
+                                if set.isPersonalRecord {
+                                    PersonalRecordBadge()
+                                }
                                 Spacer()
                                 Text("\u{d7} \(set.reps)")
                                     .font(.subheadline.bold())
@@ -533,6 +538,15 @@ struct ExerciseProgressChartCard: View, Equatable {
     private struct DisplayPoint {
         let date: Date
         let weight: Double
+        /// Where the area fill starts: the bottom of the fitted y-axis, not zero.
+        let floor: Double
+    }
+
+    /// How the x-axis steps through the chart's dates, and how it labels each step.
+    struct DateAxis {
+        let component: Calendar.Component
+        let count: Int
+        let format: Date.FormatStyle
     }
 
     let chartPoints: [ExerciseProgressChartPoint]
@@ -540,6 +554,35 @@ struct ExerciseProgressChartCard: View, Equatable {
 
     static func == (lhs: Self, rhs: Self) -> Bool {
         lhs.chartPoints == rhs.chartPoints && lhs.weightUnit == rhs.weightUnit
+    }
+
+    /// Fits the y-axis to the weights, so a gain from 185 to 205 reads as a climb rather
+    /// than a flat line near the top of a zero-based axis. The range never drops below
+    /// zero and keeps some height when every weight is the same.
+    static func yDomain(for weights: [Double]) -> ClosedRange<Double> {
+        guard let low = weights.min(), let high = weights.max() else { return 0...1 }
+        let span = max(high - low, high * 0.1, 1)
+        return max(0, low - span * 0.25)...(high + span * 0.15)
+    }
+
+    /// Steps the x-axis so the dates shown get a handful of labels: days or weeks for
+    /// about a month of sets, months within a year, and years for long histories.
+    static func dateAxis(for dates: [Date]) -> DateAxis {
+        guard let first = dates.min(), let last = dates.max() else {
+            return DateAxis(component: .month, count: 1, format: .dateTime.month(.abbreviated))
+        }
+        let monthDay = Date.FormatStyle.dateTime.month(.abbreviated).day()
+        let month = Date.FormatStyle.dateTime.month(.abbreviated)
+        switch last.timeIntervalSince(first) / 86_400 {
+        case ..<8: return DateAxis(component: .day, count: 2, format: monthDay)
+        case ..<22: return DateAxis(component: .weekOfYear, count: 1, format: monthDay)
+        case ..<46: return DateAxis(component: .weekOfYear, count: 2, format: monthDay)
+        case ..<121: return DateAxis(component: .month, count: 1, format: month)
+        case ..<241: return DateAxis(component: .month, count: 2, format: month)
+        case ..<401: return DateAxis(component: .month, count: 3, format: month)
+        case ..<801: return DateAxis(component: .month, count: 6, format: month.year(.twoDigits))
+        default: return DateAxis(component: .year, count: 1, format: .dateTime.year())
+        }
     }
 
     var body: some View {
@@ -554,6 +597,7 @@ struct ExerciseProgressChartCard: View, Equatable {
                         Image(systemName: "chart.line.uptrend.xyaxis")
                             .font(.system(size: 36))
                             .foregroundStyle(.secondary)
+                            .accessibilityHidden(true)
                         Text("Not enough data yet")
                             .font(.subheadline)
                             .foregroundStyle(.secondary)
@@ -565,13 +609,17 @@ struct ExerciseProgressChartCard: View, Equatable {
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 24)
                 } else {
-                    let displayPoints = chartPoints.map {
-                        DisplayPoint(date: $0.date, weight: $0.displayWeight(unit: weightUnit))
+                    let weights = chartPoints.map { $0.displayWeight(unit: weightUnit) }
+                    let yDomain = Self.yDomain(for: weights)
+                    let dateAxis = Self.dateAxis(for: chartPoints.map(\.date))
+                    let displayPoints = zip(chartPoints, weights).map { point, weight in
+                        DisplayPoint(date: point.date, weight: weight, floor: yDomain.lowerBound)
                     }
                     Chart {
                         AreaPlot(displayPoints,
                                  x: .value("Date", \.date),
-                                 y: .value("Weight (\(weightUnit.symbol))", \.weight))
+                                 yStart: .value("Axis Floor", \.floor),
+                                 yEnd: .value("Weight (\(weightUnit.symbol))", \.weight))
                             .foregroundStyle(
                                 LinearGradient(colors: [.blue.opacity(0.3), .clear],
                                                startPoint: .top, endPoint: .bottom)
@@ -590,22 +638,23 @@ struct ExerciseProgressChartCard: View, Equatable {
                                 .symbolSize(30)
                         }
                     }
-                    .chartXAxis {
-                        AxisMarks(values: .stride(by: .month)) {
-                            AxisGridLine().foregroundStyle(.white.opacity(0.08))
-                            AxisTick().foregroundStyle(.clear)
-                            AxisValueLabel(format: .dateTime.month(.abbreviated))
-                                .foregroundStyle(.secondary)
-                        }
-                    }
+                    .chartYScale(domain: yDomain)
                     .chartYAxis {
-                        AxisMarks {
+                        AxisMarks(values: .automatic(desiredCount: 4)) {
                             AxisGridLine().foregroundStyle(.white.opacity(0.08))
-                            AxisTick().foregroundStyle(.clear)
-                            AxisValueLabel().foregroundStyle(.secondary)
+                            // No foregroundStyle here: on iOS 27 a styled y-axis label isn't
+                            // drawn at all. The default is already secondary.
+                            AxisValueLabel()
                         }
                     }
-                    .chartYAxisLabel("Weight (\(weightUnit.symbol))")
+                    .chartXAxis {
+                        AxisMarks(values: .stride(by: dateAxis.component, count: dateAxis.count)) {
+                            AxisGridLine().foregroundStyle(.white.opacity(0.08))
+                            AxisTick().foregroundStyle(.clear)
+                            AxisValueLabel(format: dateAxis.format)
+                                .foregroundStyle(Color.secondary)
+                        }
+                    }
                     .accessibilityLabel("Maximum weight over time in \(weightUnit.spokenName)")
                     .frame(height: 200)
                 }

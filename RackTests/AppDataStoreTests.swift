@@ -165,14 +165,15 @@ final class StartupMaintenanceTests {
 
     // MARK: Exercise library
 
-    @Test func duplicatesMergeIntoTheMostReferencedExercise() async throws {
+    @Test func duplicatesMergeIntoTheOldestExercise() async throws {
         // Two copies of the library's Bench Press, as a second iCloud device can create.
-        let lessUsed = insertedExercise("Bench Press", .chest, .barbell)
-        let mostUsed = insertedExercise("bench press ", .chest, .barbell)
-        insertedSet(lessUsed, reps: 5, weight: 100, isRecord: true)
-        insertedSet(mostUsed, reps: 5, weight: 90, isRecord: true)
-        let heaviest = insertedSet(mostUsed, reps: 5, weight: 110, isRecord: false)
-        context.insert(PlannedExercise(exercise: mostUsed))
+        // The newer copy is used more on this device, but the oldest copy is kept.
+        let original = insertedExercise("bench press ", .chest, .barbell, createdAt: Date(timeIntervalSince1970: 1_000))
+        let newerCopy = insertedExercise("Bench Press", .chest, .barbell, createdAt: Date(timeIntervalSince1970: 2_000))
+        insertedSet(original, reps: 5, weight: 100, isRecord: true)
+        insertedSet(newerCopy, reps: 5, weight: 90, isRecord: true)
+        let heaviest = insertedSet(newerCopy, reps: 5, weight: 110, isRecord: false)
+        context.insert(PlannedExercise(exercise: newerCopy))
         try context.save()
 
         let succeeded = await ExerciseLibraryMaintenanceActor(modelContainer: container)
@@ -181,14 +182,47 @@ final class StartupMaintenanceTests {
         #expect(succeeded)
         let benchPresses = try TestStore.savedModels(Exercise.self, in: container)
             .filter { ExerciseLibrary.normalizedName($0.name) == "bench press" }
-        #expect(benchPresses.map(\.id) == [mostUsed.id])
+        #expect(benchPresses.map(\.id) == [original.id])
         #expect(benchPresses.first?.name == "Bench Press")
         let sets = try TestStore.savedModels(LoggedSet.self, in: container)
         #expect(sets.count == 3)
-        #expect(sets.allSatisfy { $0.exercise?.id == mostUsed.id })
+        #expect(sets.allSatisfy { $0.exercise?.id == original.id })
         #expect(Set(sets.filter(\.isPersonalRecord).map(\.id)) == [heaviest.id])
         let planned = try TestStore.savedModels(PlannedExercise.self, in: container)
-        #expect(planned.map(\.exercise?.id) == [mostUsed.id])
+        #expect(planned.map(\.exercise?.id) == [original.id])
+    }
+
+    @Test func everyDeviceKeepsTheSameCopyWhateverItHasSynced() async throws {
+        // Two devices hold the same two copies, but each has synced a different share of
+        // their sets, so each sees a different copy as the more used one.
+        let originalID = UUID()
+        let copyID = UUID()
+        let otherDevice = try TestStore.makeInMemoryContainer()
+        for (store, busierID) in [(container, copyID), (otherDevice, originalID)] {
+            let storeContext = store.mainContext
+            let original = Exercise(name: "Bench Press", muscleGroup: .chest, equipment: .barbell)
+            original.id = originalID
+            original.createdAt = Date(timeIntervalSince1970: 1_000)
+            let copy = Exercise(name: "Bench Press", muscleGroup: .chest, equipment: .barbell)
+            copy.id = copyID
+            copy.createdAt = Date(timeIntervalSince1970: 2_000)
+            storeContext.insert(original)
+            storeContext.insert(copy)
+            let busier = busierID == originalID ? original : copy
+            for weight in [100.0, 105, 110] {
+                storeContext.insert(LoggedSet(exercise: busier, reps: 5, weight: weight))
+            }
+            try storeContext.save()
+        }
+
+        for store in [container, otherDevice] {
+            let succeeded = await ExerciseLibraryMaintenanceActor(modelContainer: store)
+                .performMaintenance(defaults: defaults)
+            #expect(succeeded)
+            let survivors = try TestStore.savedModels(Exercise.self, in: store)
+                .filter { ExerciseLibrary.normalizedName($0.name) == "bench press" }
+            #expect(survivors.map(\.id) == [originalID])
+        }
     }
 
     @Test func missingLibraryExercisesAreRestoredAndCustomOnesKept() async throws {
@@ -257,8 +291,16 @@ final class StartupMaintenanceTests {
 
     // MARK: Helpers
 
-    private func insertedExercise(_ name: String, _ muscleGroup: MuscleGroup, _ equipment: Equipment) -> Exercise {
+    private func insertedExercise(
+        _ name: String,
+        _ muscleGroup: MuscleGroup,
+        _ equipment: Equipment,
+        createdAt: Date? = nil
+    ) -> Exercise {
         let exercise = Exercise(name: name, muscleGroup: muscleGroup, equipment: equipment)
+        if let createdAt {
+            exercise.createdAt = createdAt
+        }
         context.insert(exercise)
         return exercise
     }

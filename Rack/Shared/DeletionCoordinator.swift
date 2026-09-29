@@ -1,3 +1,4 @@
+import Accessibility
 import Foundation
 import Observation
 import SwiftData
@@ -5,6 +6,9 @@ import SwiftData
 /// Keeps an Undo batch in memory until its single save deadline expires.
 @MainActor @Observable
 final class DeletionCoordinator {
+    /// The Undo window while VoiceOver runs, long enough to reach the toast's button.
+    static let voiceOverUndoInterval: TimeInterval = 10
+
     enum Identity: Hashable {
         case program(UUID)
         case workout(UUID, programID: UUID?)
@@ -15,12 +19,34 @@ final class DeletionCoordinator {
             case program(UUID), workout(UUID), planned(UUID), loggedSet(UUID)
         }
 
+        enum Kind: Hashable {
+            case program, workout, planned, loggedSet
+
+            func deletedMessage(count: Int) -> String {
+                switch self {
+                case .program: return count == 1 ? "Program deleted" : "\(count) programs deleted"
+                case .workout: return count == 1 ? "Workout day deleted" : "\(count) workout days deleted"
+                case .planned: return count == 1 ? "Exercise removed" : "\(count) exercises removed"
+                case .loggedSet: return count == 1 ? "Set deleted" : "\(count) sets deleted"
+                }
+            }
+        }
+
         var key: Key {
             switch self {
             case .program(let id): return .program(id)
             case .workout(let id, _): return .workout(id)
             case .planned(let id, _, _): return .planned(id)
             case .loggedSet(let id, _): return .loggedSet(id)
+            }
+        }
+
+        var kind: Kind {
+            switch self {
+            case .program: return .program
+            case .workout: return .workout
+            case .planned: return .planned
+            case .loggedSet: return .loggedSet
             }
         }
     }
@@ -36,9 +62,10 @@ final class DeletionCoordinator {
     @ObservationIgnored private let now: () -> Date
     @ObservationIgnored private let sleep: @Sendable (Duration) async throws -> Void
     @ObservationIgnored private let onFetch: (FetchKind) -> Void
+    @ObservationIgnored private let announce: (String) -> Void
     @ObservationIgnored private var timer: Task<Void, Never>?
     @ObservationIgnored private var deadline: Date?
-    @ObservationIgnored private let undoInterval: TimeInterval
+    @ObservationIgnored private(set) var undoInterval: TimeInterval
     @ObservationIgnored private var remaining: TimeInterval
 
     enum FetchKind: Equatable {
@@ -53,7 +80,8 @@ final class DeletionCoordinator {
         commandRunner: PersistenceCommandRunner = PersistenceCommandRunner(),
         now: @escaping () -> Date = Date.init,
         sleep: @escaping @Sendable (Duration) async throws -> Void = { try await Task.sleep(for: $0) },
-        onFetch: @escaping (FetchKind) -> Void = { _ in }
+        onFetch: @escaping (FetchKind) -> Void = { _ in },
+        announce: @escaping (String) -> Void = { AccessibilityNotification.Announcement($0).post() }
     ) {
         self.undoInterval = undoInterval
         self.remaining = undoInterval
@@ -63,13 +91,23 @@ final class DeletionCoordinator {
         self.now = now
         self.sleep = sleep
         self.onFetch = onFetch
+        self.announce = announce
     }
 
     var pendingCount: Int { pending.count }
     var showsToast: Bool { !pending.isEmpty && !isToastDismissed }
+
+    /// Names what was deleted, such as "Set deleted" or "3 sets deleted", and falls back
+    /// to "3 items deleted" for a mix.
     var toastMessage: String {
-        let count = pendingCount
-        return "\(count) \(count == 1 ? "item" : "items") deleted"
+        let kinds = Set(pending.map(\.kind))
+        guard kinds.count == 1, let kind = kinds.first else { return "\(pendingCount) items deleted" }
+        return kind.deletedMessage(count: pendingCount)
+    }
+
+    /// Takes effect from the next Undo window; a running window keeps its deadline.
+    func setUndoInterval(_ seconds: TimeInterval) {
+        undoInterval = seconds
     }
 
     func request(_ program: Program) {
@@ -203,7 +241,8 @@ final class DeletionCoordinator {
         undo()
         switch result {
         case .success(let exerciseIDs):
-            LoggedSetChange.publish(exerciseIDs: exerciseIDs)
+            // Only deleted sets report exercise IDs.
+            LoggedSetChange.publish(exerciseIDs: exerciseIDs, removedSets: true)
         case .failure(let error):
             alertCenter.report(PersistenceAlert(title: "Couldn't Delete Items", error: error))
         }
@@ -229,6 +268,9 @@ final class DeletionCoordinator {
         }
         pending.append(identity)
         isToastDismissed = false
+        // Announced here rather than by the toast, since the app root and each open sheet
+        // show their own copy of it.
+        announce("\(toastMessage). Undo available.")
         remaining = undoInterval
         if isPaused {
             timer?.cancel()

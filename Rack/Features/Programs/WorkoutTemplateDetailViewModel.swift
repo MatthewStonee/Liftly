@@ -69,7 +69,7 @@ final class WorkoutTemplateDetailViewModel {
         to name: String,
         context: ModelContext
     ) -> Result<Void, PersistenceCommandError> {
-        let trimmedName = name.trimmingCharacters(in: .whitespaces)
+        let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedName.isEmpty else { return .failure(.invalidInput) }
         guard !workout.isDeleted else { return .failure(.unavailable) }
 

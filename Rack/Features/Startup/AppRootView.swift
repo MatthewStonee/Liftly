@@ -30,8 +30,11 @@ struct AppRootView: View {
 
 private struct LoadedAppView: View {
     let container: ModelContainer
+    /// The Undo window without VoiceOver.
+    private let baseUndoInterval: TimeInterval
 
     @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.accessibilityVoiceOverEnabled) private var isVoiceOverEnabled
     @State private var alertCenter: PersistenceAlertCenter
     @State private var deletionCoordinator: DeletionCoordinator
     @State private var showingSyncNotice: Bool
@@ -45,6 +48,7 @@ private struct LoadedAppView: View {
         #else
         let undoInterval: TimeInterval = 4
         #endif
+        baseUndoInterval = undoInterval
         _deletionCoordinator = State(initialValue: DeletionCoordinator(
             context: container.mainContext,
             alertCenter: center,
@@ -80,6 +84,11 @@ private struct LoadedAppView: View {
                     // Brief interruptions, like Control Center, keep the Undo window.
                     deletionCoordinator.setActive(false)
                 }
+            }
+            .onChange(of: isVoiceOverEnabled, initial: true) { _, isEnabled in
+                deletionCoordinator.setUndoInterval(
+                    isEnabled ? max(baseUndoInterval, DeletionCoordinator.voiceOverUndoInterval) : baseUndoInterval
+                )
             }
             .task(priority: .utility) {
                 #if DEBUG

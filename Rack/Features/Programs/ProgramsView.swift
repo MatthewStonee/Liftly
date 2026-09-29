@@ -177,7 +177,7 @@ struct ProgramsView: View {
                         .overlay(Capsule().strokeBorder(.blue.opacity(0.35), lineWidth: 0.5))
 
                     Text(program.name)
-                        .font(.system(size: 32, weight: .black))
+                        .font(.largeTitle.weight(.black))
                         .foregroundStyle(.white)
                         .tracking(-0.5)
                         .lineLimit(2)
@@ -215,6 +215,7 @@ struct ProgramsView: View {
                 .font(.system(size: 72))
                 .symbolRenderingMode(.hierarchical)
                 .foregroundStyle(.blue)
+                .accessibilityHidden(true)
 
             VStack(spacing: 10) {
                 Text("Build Your First Program")
@@ -244,6 +245,7 @@ struct ProgramsView: View {
             Image(systemName: icon)
                 .font(.system(size: 20))
                 .foregroundStyle(.blue.opacity(0.6))
+                .accessibilityHidden(true)
             Text(text)
                 .font(.caption)
                 .foregroundStyle(.secondary)

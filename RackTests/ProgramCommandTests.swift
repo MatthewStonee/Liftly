@@ -39,6 +39,24 @@ struct ProgramCommandTests {
         #expect(saves.saveAttempts == 0)
     }
 
+    @Test func namesAndDescriptionsDropSurroundingNewlines() throws {
+        saves.isFailing = false
+        let viewModel = ProgramsViewModel(commandRunner: saves.runner)
+
+        // The description field is multi-line, so Return can leave newlines behind.
+        let program = try viewModel.createProgram(name: " PPL\n", description: "Heavy days\n\n", context: context).get()
+        #expect(program.name == "PPL")
+        #expect(program.programDescription == "Heavy days")
+        #expect(viewModel.createProgram(name: "\n\n", description: "", context: context).failure == .invalidInput)
+
+        let workout = try ProgramDetailViewModel(commandRunner: saves.runner)
+            .addWorkout(named: "Push\n", to: program, context: context).get()
+        #expect(workout.name == "Push")
+        try WorkoutTemplateDetailViewModel(commandRunner: saves.runner)
+            .renameWorkout(workout, to: " Pull\n", context: context).get()
+        #expect(workout.name == "Pull")
+    }
+
     @Test func theFirstProgramBecomesActiveAndLaterOnesDoNot() throws {
         saves.isFailing = false
         let viewModel = ProgramsViewModel(commandRunner: saves.runner)

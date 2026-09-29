@@ -169,6 +169,7 @@ private struct ExercisePickerResultsView: View {
                 .font(.system(size: 48))
                 .symbolRenderingMode(.hierarchical)
                 .foregroundStyle(.secondary)
+                .accessibilityHidden(true)
             Text(hasActiveFilter ? "No results" : "No exercises yet")
                 .font(.headline)
             Text(hasActiveFilter ? "Try a different search or filter" : "Tap + to add your first exercise")
@@ -255,6 +256,10 @@ struct CreateExerciseView: View {
         !trimmedName.isEmpty && !isDuplicateName
     }
 
+    private var hasChanges: Bool {
+        !name.isEmpty || muscleGroup != .chest || equipment != .barbell
+    }
+
     var body: some View {
         NavigationStack {
             Form {
@@ -303,6 +308,7 @@ struct CreateExerciseView: View {
                 }
             }
         }
+        .interactiveDismissDisabled(hasChanges)
         .persistenceAlert(isPresented: $showingSaveAlert, alert: saveAlert)
     }
 

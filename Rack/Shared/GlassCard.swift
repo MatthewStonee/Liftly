@@ -70,7 +70,10 @@ struct GlassButton: View {
     }
 }
 
+/// The prominent action button. It dims itself when disabled, since its gradient fill
+/// would otherwise look tappable.
 struct PrimaryButton: View {
+    @Environment(\.isEnabled) private var isEnabled
     let title: String
     let icon: String?
     let action: () -> Void
@@ -107,6 +110,7 @@ struct PrimaryButton: View {
             )
         }
         .foregroundStyle(.white)
+        .opacity(isEnabled ? 1 : 0.45)
     }
 }
 

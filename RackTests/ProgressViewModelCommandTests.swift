@@ -343,6 +343,31 @@ struct ProgressViewModelCommandTests {
         #expect(metricsLoads.count == 4)
     }
 
+    @Test func deletionWhileHistoryCoversTheScreenDropsTheSetRightAway() throws {
+        let exercise = try Fixtures.savedExercise(in: context)
+        let kept = try savedSet(exercise, reps: 5, weight: 100, daysAgo: 1, isRecord: false)
+        let deleted = try savedSet(exercise, reps: 5, weight: 110, daysAgo: 0, isRecord: true)
+        let metricsLoads = MetricsLoadCounter()
+        let screen = ProgressViewModel(commandRunner: saves.runner, metricsLoader: metricsLoads.loader)
+        var committed: [Notification] = []
+        let subscription = NotificationCenter.default.publisher(for: LoggedSetChange.didCommit)
+            .sink { committed.append($0) }
+        defer { subscription.cancel() }
+
+        screen.exerciseDetailAppeared(exercise, context: context)
+        screen.exerciseDetailDisappeared()
+        try deleteAfterUndoWindow(deleted)
+        for notification in committed {
+            screen.handleCommittedChange(notification, exercise: exercise, context: context)
+        }
+
+        // The covered screen reloads now instead of keeping the deleted set until it reappears.
+        #expect(metricsLoads.count == 2)
+        #expect(screen.exerciseMetrics.recentSets.map(\.id) == [kept.id])
+        #expect(screen.exerciseMetrics.latestSet?.id == kept.id)
+        #expect(screen.exerciseMetrics.personalRecord?.id == kept.id)
+    }
+
     // MARK: Weight precision
 
     @Test func repsOnlyAndDateOnlyEditsKeepTheExactStoredWeight() throws {

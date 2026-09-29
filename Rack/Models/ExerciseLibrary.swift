@@ -71,23 +71,16 @@ enum ExerciseLibrary {
 
             var plannedExercises: [PlannedExercise] = []
             var loggedSets: [LoggedSet] = []
-            var referenceCounts: [UUID: Int] = [:]
 
             // Avoid faulting relationship collections for the normal, duplicate-free path.
             if matches.count > 1 {
                 for exercise in matches {
-                    let exercisePlannedExercises = exercise.plannedExercisesList
-                    let exerciseLoggedSets = exercise.loggedSetsList
-                    plannedExercises.append(contentsOf: exercisePlannedExercises)
-                    loggedSets.append(contentsOf: exerciseLoggedSets)
-                    referenceCounts[exercise.id] =
-                        exercisePlannedExercises.count + exerciseLoggedSets.count
+                    plannedExercises.append(contentsOf: exercise.plannedExercisesList)
+                    loggedSets.append(contentsOf: exercise.loggedSetsList)
                 }
             }
 
-            let canonical = matches.count == 1
-                ? matches[0]
-                : canonicalExercise(from: matches, referenceCounts: referenceCounts)
+            let canonical = matches.count == 1 ? matches[0] : canonicalExercise(from: matches)
 
             if canonical.name != entry.name {
                 canonical.name = entry.name
@@ -188,20 +181,16 @@ enum ExerciseLibrary {
         name.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
     }
 
-    private nonisolated static func canonicalExercise(
-        from exercises: [Exercise],
-        referenceCounts: [UUID: Int]
-    ) -> Exercise {
-        exercises.max { lhs, rhs in
-            let lhsReferences = referenceCounts[lhs.id, default: 0]
-            let rhsReferences = referenceCounts[rhs.id, default: 0]
-            if lhsReferences != rhsReferences {
-                return lhsReferences < rhsReferences
-            }
+    /// The copy every device keeps: the oldest, then the smallest ID. Both come from the
+    /// synced records, so devices agree however much each has synced. Choosing by this
+    /// device's reference counts could let a partly synced device keep its own copy and
+    /// delete the original, and sets still syncing to the original would lose their exercise.
+    private nonisolated static func canonicalExercise(from exercises: [Exercise]) -> Exercise {
+        exercises.min { lhs, rhs in
             if lhs.createdAt != rhs.createdAt {
-                return lhs.createdAt > rhs.createdAt
+                return lhs.createdAt < rhs.createdAt
             }
-            return lhs.id.uuidString > rhs.id.uuidString
+            return lhs.id.uuidString < rhs.id.uuidString
         }!
     }
 

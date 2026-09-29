@@ -433,12 +433,67 @@ struct P2RegressionTests {
         #expect(state.session == nil)
     }
 
+    @Test func toastNamesWhatWasDeletedAndVoiceOverHearsIt() throws {
+        let program = try Fixtures.savedProgram(in: context, name: "Program")
+        let exercise = try Fixtures.savedExercise(in: context)
+        let newer = try Fixtures.savedSet(for: exercise, reps: 5, weight: 100, daysAgo: 1, isPersonalRecord: true, in: context)
+        let older = try Fixtures.savedSet(for: exercise, reps: 5, weight: 90, daysAgo: 2, isPersonalRecord: false, in: context)
+        var announcements: [String] = []
+        let batch = DeletionCoordinator(
+            context: context,
+            alertCenter: alerts,
+            now: { clock.date },
+            sleep: { _ in try await Task.sleep(for: .seconds(3600)) },
+            announce: { announcements.append($0) }
+        )
+
+        batch.request(newer)
+        #expect(batch.toastMessage == "Set deleted")
+        batch.request(older)
+        batch.request(older) // Already pending: no second announcement.
+        #expect(batch.toastMessage == "2 sets deleted")
+        batch.request(program)
+        #expect(batch.toastMessage == "3 items deleted")
+        #expect(announcements == [
+            "Set deleted. Undo available.",
+            "2 sets deleted. Undo available.",
+            "3 items deleted. Undo available."
+        ])
+
+        batch.undo()
+        batch.setUndoInterval(DeletionCoordinator.voiceOverUndoInterval)
+        #expect(batch.undoInterval == 10)
+    }
+
     @Test func chartUsesSelectedUnitForEveryMarkAndInvalidatesEquality() {
         let point = ExerciseProgressChartPoint(date: .now, weight: 100)
         #expect(point.displayWeight(unit: .lbs) == 100)
         #expect(abs(point.displayWeight(unit: .kg) - 45.3592) < 0.0001)
         #expect(ExerciseProgressChartCard(chartPoints: [point], weightUnit: .lbs)
             != ExerciseProgressChartCard(chartPoints: [point], weightUnit: .kg))
+    }
+
+    @Test func chartFitsItsAxesToTheData() {
+        // A climb from 185 to 205 fills most of the chart instead of its top tenth.
+        let domain = ExerciseProgressChartCard.yDomain(for: [185, 195, 205])
+        #expect(domain.lowerBound > 0 && domain.lowerBound < 185)
+        #expect(domain.upperBound > 205)
+        #expect((205 - 185) / (domain.upperBound - domain.lowerBound) > 0.6)
+        // Flat and near-zero series keep some height and never dip below zero.
+        let flat = ExerciseProgressChartCard.yDomain(for: [100, 100])
+        #expect(flat.lowerBound < 100 && flat.upperBound > 100)
+        #expect(ExerciseProgressChartCard.yDomain(for: [0, 2]).lowerBound == 0)
+
+        let start = Date(timeIntervalSince1970: 1_750_000_000)
+        func axis(spanningDays days: Double) -> ExerciseProgressChartCard.DateAxis {
+            ExerciseProgressChartCard.dateAxis(for: [start, start.addingTimeInterval(days * 86_400)])
+        }
+        #expect(axis(spanningDays: 30).component == .weekOfYear)
+        #expect(axis(spanningDays: 30).count == 2)
+        #expect(axis(spanningDays: 90).component == .month)
+        #expect(axis(spanningDays: 90).count == 1)
+        #expect(axis(spanningDays: 365).count == 3)
+        #expect(axis(spanningDays: 1_000).component == .year)
     }
 }
 

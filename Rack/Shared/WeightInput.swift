@@ -184,6 +184,10 @@ struct WeightDraft: Equatable {
         return input.message(for: error)
     }
 
+    /// Whether the text differs from what the form opened with, ignoring surrounding
+    /// whitespace. Forms use it to keep a swipe from discarding an edit.
+    var hasChanges: Bool { !isUnchanged }
+
     private var isUnchanged: Bool {
         text.trimmingCharacters(in: .whitespacesAndNewlines)
             == initialText.trimmingCharacters(in: .whitespacesAndNewlines)

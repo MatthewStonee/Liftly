@@ -37,7 +37,7 @@ final class ProgramDetailViewModel {
         to program: Program,
         context: ModelContext
     ) -> Result<WorkoutTemplate, PersistenceCommandError> {
-        let trimmedName = name.trimmingCharacters(in: .whitespaces)
+        let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedName.isEmpty else { return .failure(.invalidInput) }
         guard !program.isDeleted else { return .failure(.unavailable) }
 

@@ -16,9 +16,9 @@ final class ProgramsViewModel {
         description: String,
         context: ModelContext
     ) -> Result<Program, PersistenceCommandError> {
-        let trimmedName = name.trimmingCharacters(in: .whitespaces)
+        let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedName.isEmpty else { return .failure(.invalidInput) }
-        let trimmedDescription = description.trimmingCharacters(in: .whitespaces)
+        let trimmedDescription = description.trimmingCharacters(in: .whitespacesAndNewlines)
 
         return commandRunner.perform(in: context) { context in
             let activeCount = try context.fetchCount(
@@ -39,10 +39,10 @@ final class ProgramsViewModel {
         description: String,
         context: ModelContext
     ) -> Result<Void, PersistenceCommandError> {
-        let trimmedName = name.trimmingCharacters(in: .whitespaces)
+        let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedName.isEmpty else { return .failure(.invalidInput) }
         guard !program.isDeleted else { return .failure(.unavailable) }
-        let trimmedDescription = description.trimmingCharacters(in: .whitespaces)
+        let trimmedDescription = description.trimmingCharacters(in: .whitespacesAndNewlines)
 
         return commandRunner.perform(in: context) { _ in
             if program.name != trimmedName {
