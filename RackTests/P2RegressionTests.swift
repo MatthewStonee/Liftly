@@ -417,20 +417,21 @@ struct P2RegressionTests {
         #expect(SiblingOrder.workouts(workouts).map(\.orderIndex) == [0, 1, 2])
     }
 
-    @Test func dragAcceptsOnlyCurrentCollectionAndNoOp() {
-        let drag = ReorderDropSession(activeID: 2, initialIDs: [1, 2, 3])
-        #expect(drag.acceptedOrder(payloadID: 1, currentIDs: [1, 2, 3], rawIndex: 3) == nil)
-        #expect(drag.acceptedOrder(payloadID: 2, currentIDs: [1, 2, 3, 4], rawIndex: 3) == nil)
-        #expect(drag.acceptedOrder(payloadID: 2, currentIDs: [1, 2, 3], rawIndex: 2) == [1, 2, 3])
-        #expect(drag.acceptedOrder(payloadID: 2, currentIDs: [1, 2, 3], rawIndex: 0) == [2, 1, 3])
-
-        var state = ReorderDragState<Int>()
-        state.begin(id: 2, collection: [1, 2, 3])
-        state.cancel() // Preview disappeared or the drop landed outside a target.
-        #expect(state.accept(payloadID: 2, collection: [1, 2, 3], rawIndex: 0) == nil)
-        state.begin(id: 2, collection: [1, 2, 3])
-        #expect(state.accept(payloadID: 2, collection: [1, 2, 3], rawIndex: 0) == [2, 1, 3])
-        #expect(state.session == nil)
+    @Test func reorderMovePlacesSourcesBeforeTheDestination() {
+        let ids = [1, 2, 3, 4]
+        #expect(SiblingOrder.moving([1], before: 4, in: ids) == [2, 3, 1, 4])
+        #expect(SiblingOrder.moving([4], before: 1, in: ids) == [4, 1, 2, 3])
+        #expect(SiblingOrder.moving([1], before: nil, in: ids) == [2, 3, 4, 1])
+        #expect(SiblingOrder.moving([2], before: 3, in: ids) == ids) // Dropped where it started.
+        // Several items keep the order they were picked in, and duplicates count once.
+        #expect(SiblingOrder.moving([4, 1, 4], before: 3, in: ids) == [2, 4, 1, 3])
+        // A destination that is moving too means before the next item that stays.
+        #expect(SiblingOrder.moving([1, 2], before: 2, in: ids) == [1, 2, 3, 4])
+        #expect(SiblingOrder.moving([3, 4], before: 4, in: ids) == [1, 2, 3, 4])
+        // Sync removed the dragged item or the destination: save nothing.
+        #expect(SiblingOrder.moving([9], before: 1, in: ids) == nil)
+        #expect(SiblingOrder.moving([1], before: 9, in: ids) == nil)
+        #expect(SiblingOrder.moving([1, 9], before: nil, in: ids) == [2, 3, 4, 1])
     }
 
     @Test func toastNamesWhatWasDeletedAndVoiceOverHearsIt() throws {

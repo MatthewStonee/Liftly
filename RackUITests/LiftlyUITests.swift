@@ -70,10 +70,13 @@ final class LiftlyUITests: XCTestCase {
         XCTAssertTrue(app.descendants(matching: .any)["workout.row.Day A"].waitForExistence(timeout: 5))
     }
 
-    private func enableReorder() {
-        app.buttons["Program Options"].tap()
-        app.buttons["Reorder"].tap()
-        XCTAssertTrue(app.buttons["Done Reordering"].waitForExistence(timeout: 5))
+    private func openDayA() {
+        app.descendants(matching: .any)["workout.row.Day A"].tap()
+        XCTAssertTrue(exerciseRows.firstMatch.waitForExistence(timeout: 5))
+    }
+
+    private var exerciseRows: XCUIElementQuery {
+        app.descendants(matching: .any).matching(NSPredicate(format: "identifier BEGINSWITH %@", "exercise.row."))
     }
 
     private func workoutOrder() -> [String] {
@@ -83,39 +86,66 @@ final class LiftlyUITests: XCTestCase {
         }
     }
 
+    private func exerciseOrder() -> [String] {
+        exerciseRows.allElementsBoundByIndex.sorted { $0.frame.midY < $1.frame.midY }.map(\.identifier)
+    }
+
+    /// Touches and holds anywhere on `source` to lift it, then drops it on the lower part of `target`.
+    private func drag(_ source: XCUIElement, below target: XCUIElement) {
+        XCTAssertTrue(source.exists && target.exists)
+        source.coordinate(withNormalizedOffset: CGVector(dx: 0.3, dy: 0.5))
+            .press(forDuration: 1.5, thenDragTo: target.coordinate(withNormalizedOffset: CGVector(dx: 0.3, dy: 0.8)),
+                   withVelocity: .slow, thenHoldForDuration: 1)
+    }
+
+    /// Waits for the drop animation to settle on `expected`.
+    private func waitForOrder(_ expected: [String], _ order: @escaping () -> [String]) -> Bool {
+        let settled = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in order() == expected }, object: nil)
+        return XCTWaiter.wait(for: [settled], timeout: 5) == .completed
+    }
+
     func testAcceptedDragPersistsAndCanceledDragKeepsOrder() {
         launch("reorder")
         openReorderProgram()
-        enableReorder()
-        let initial = workoutOrder()
+        XCTAssertEqual(workoutOrder(), ["Day A", "Day B", "Day C"])
 
-        let handle = app.descendants(matching: .any)["workout.drag.Day A"]
-        let target = app.descendants(matching: .any)["workout.row.Day C"]
-        XCTAssertTrue(handle.exists && target.exists)
-        handle.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
-            .press(forDuration: 2, thenDragTo: target.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.8)),
-                   withVelocity: .slow, thenHoldForDuration: 2)
-        // The system transfers the drag payload asynchronously after release.
-        let reordered = XCTNSPredicateExpectation(
-            predicate: NSPredicate { [self] _, _ in
-                workoutOrder() == ["Day B", "Day C", "Day A"]
-            }, object: nil
-        )
-        let result = XCTWaiter.wait(for: [reordered], timeout: 5)
-        XCTAssertEqual(result, .completed)
-        let accepted = workoutOrder()
-        XCTAssertEqual(initial, ["Day A", "Day B", "Day C"])
-        XCTAssertEqual(accepted, ["Day B", "Day C", "Day A"])
+        drag(app.descendants(matching: .any)["workout.row.Day A"],
+             below: app.descendants(matching: .any)["workout.row.Day C"])
+        let accepted = ["Day B", "Day C", "Day A"]
+        XCTAssertTrue(waitForOrder(accepted, workoutOrder))
+        XCTAssertFalse(app.navigationBars["Day A"].exists, "Dropping a row must not open it")
 
-        let cancelHandle = app.descendants(matching: .any)["workout.drag.Day B"]
-        cancelHandle.press(forDuration: 1, thenDragTo: app.navigationBars.firstMatch)
-        XCTAssertEqual(workoutOrder(), accepted)
-        app.buttons["Done Reordering"].tap()
+        // A drop outside the list cancels the move.
+        app.descendants(matching: .any)["workout.row.Day B"]
+            .press(forDuration: 1.5, thenDragTo: app.navigationBars.firstMatch)
+        XCTAssertTrue(waitForOrder(accepted, workoutOrder))
 
         app.terminate()
         launch("reorder")
         openReorderProgram()
         XCTAssertEqual(workoutOrder(), accepted)
+
+        // Reordering lives on the rows, so a tap still opens a day.
+        openDayA()
+        XCTAssertTrue(app.navigationBars["Day A"].exists)
+    }
+
+    func testExerciseDragPersists() {
+        launch("reorder")
+        openReorderProgram()
+        openDayA()
+        let initial = exerciseOrder()
+        XCTAssertEqual(initial.count, 3)
+
+        drag(app.descendants(matching: .any)[initial[0]], below: app.descendants(matching: .any)[initial[2]])
+        let moved = [initial[1], initial[2], initial[0]]
+        XCTAssertTrue(waitForOrder(moved, exerciseOrder))
+
+        app.terminate()
+        launch("reorder")
+        openReorderProgram()
+        openDayA()
+        XCTAssertEqual(exerciseOrder(), moved)
     }
 
     func testDelayedDeletionFailureKeepsSheetDraftAndRestoresSet() {

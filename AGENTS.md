@@ -29,7 +29,7 @@ Check `Rack/Shared/` and the feature's own folder before building a new componen
 - **Navigation**: push with `NavigationLink(value:)` or a path append, and resolve screens in one `navigationDestination(for:)` at the stack root: `ProgramsRoute` (`ProgramsView.swift`) and `ProgressRoute` (`ProgressView.swift`).
 - **History**: `ExerciseHistoryViewModel` owns paging, refreshes, and the scroll anchor for `ExerciseHistoryView`; views never fetch sets themselves. Its doc comments describe the anchoring rules.
 - **Metrics**: set commands only save and publish `LoggedSetChange`; the screen showing metrics (`ExerciseProgressView`) refreshes them itself. A deletion refreshes it even while History covers it, so it never holds a deleted set.
-- **Components**: `TimeRangePicker`, `.appBackground()`, `GlassCard`, `PinnedActionBar` (a sheet's primary action above the keyboard), `WeightValidationMessage`, `ReorderableForEach`, and the Log Set / Edit Set sheets in `LoggedSetSheets.swift`.
+- **Components**: `TimeRangePicker`, `.appBackground()`, `GlassCard`, `PinnedActionBar` (a sheet's primary action above the keyboard), `WeightValidationMessage`, `ReorderableForEach` (touch-and-hold reordering on iOS 27's `reorderable()`, with VoiceOver Move Up/Down), and the Log Set / Edit Set sheets in `LoggedSetSheets.swift`.
 - **Haptics**: prefer `.sensoryFeedback`. Use `UINotificationFeedbackGenerator` only when the view dismisses in the same action (Quick Log), because a `.sensoryFeedback` trigger on a disappearing view may never fire.
 - **Signposts**: mark latency checkpoints with `PerformanceSignposts.event(_:)`. They appear on Instruments' Points of Interest track, and `Benchmarks/` shows how to stream them.
 
@@ -44,6 +44,7 @@ Check `Rack/Shared/` and the feature's own folder before building a new componen
 - A compact `DatePicker`'s button reads to VoiceOver as "Date Picker" whatever label the picker has, so keep its visible caption readable. An untouched picker can also rewrite the bound date's exact time: compare dates at the granularity the picker edits.
 - State set synchronously in `onAppear` is in a screen's first frame. Work started in a `Task` from `onAppear` lands at least one frame later, so show what the first frame needs before starting async work (Progress lists its rows, then loads stats).
 - UI automation that dumps the accessibility tree (XcodeBuildMCP `snapshot_ui`, `capture.py`) makes SwiftUI build that tree on the main thread. The next interactions slow down: a warm Add Exercise open went from 20–86 ms to 0.9–1.4 s. Time interactions with plain taps.
+- On iOS 27.0, a `reorderable()` stack in a ScrollView doesn't auto-scroll when the lifted row reaches an edge; it only scrolls to keep the gap visible. Reorder drags never reach `onDragSessionUpdated` or `onDropSessionUpdated`, so there's no hook to add auto-scroll. Simulator screenshots and recordings also omit the lifted row, which the system draws out of process.
 
 ## Concurrency
 - Swift 5 language mode with `MainActor` as the default isolation and approachable concurrency. Code that runs on a `@ModelActor` (startup maintenance, the PR backfill) and the helpers it calls must be `nonisolated`.

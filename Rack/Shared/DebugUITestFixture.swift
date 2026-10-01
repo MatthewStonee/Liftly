@@ -87,11 +87,20 @@ enum DebugUITestFixture {
             days.append(day)
         }
 
-        if name == "liveActivity" {
-            for entry in ExerciseLibrary.seed {
-                context.insert(Exercise(name: entry.name, muscleGroup: entry.muscleGroup, equipment: entry.equipment))
+        if name == "reorder" {
+            // Day A gets exercises so their list can be reordered too.
+            let exercises = try insertLibrary(in: context)
+            guard exercises.count >= 3, let day = days.first else { throw FixtureError.missingExerciseSeed }
+            for (index, exercise) in exercises.prefix(3).enumerated() {
+                let planned = PlannedExercise(exercise: exercise, orderIndex: index)
+                planned.workoutTemplate = day
+                context.insert(planned)
             }
-            let exercises = try context.fetch(FetchDescriptor<Exercise>(sortBy: [SortDescriptor(\.name)]))
+            return
+        }
+
+        if name == "liveActivity" {
+            let exercises = try insertLibrary(in: context)
             guard exercises.count >= 11 else { throw FixtureError.missingExerciseSeed }
             for (dayIndex, day) in days.enumerated() {
                 let count = [5, 5, 0, 9, 10, 11][dayIndex]
@@ -125,6 +134,14 @@ enum DebugUITestFixture {
             set.isPersonalRecord = index == 0
             context.insert(set)
         }
+    }
+
+    /// Inserts the exercise library and returns it sorted by name.
+    private static func insertLibrary(in context: ModelContext) throws -> [Exercise] {
+        for entry in ExerciseLibrary.seed {
+            context.insert(Exercise(name: entry.name, muscleGroup: entry.muscleGroup, equipment: entry.equipment))
+        }
+        return try context.fetch(FetchDescriptor<Exercise>(sortBy: [SortDescriptor(\.name)]))
     }
 }
 #endif
