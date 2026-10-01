@@ -57,6 +57,11 @@ struct SettingsView: View {
                             .padding(.bottom, 14)
                         }
                     }
+                    settingsSectionTitle("Live Activities")
+                        .padding(.top, 16)
+                    GlassCard {
+                        GymAutomationGuide()
+                    }
                 }
                 .padding(20)
             }

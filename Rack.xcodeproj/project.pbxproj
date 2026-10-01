@@ -14,6 +14,7 @@
 		34B0A5FE305C612100EE0FCF /* ProgressViewModelCommandTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 34B0A5F6305C612100EE0FCF /* ProgressViewModelCommandTests.swift */; };
 		34B0A5FF305C612100EE0FCF /* TestSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 34B0A5F7305C612100EE0FCF /* TestSupport.swift */; };
 		34B0A600305C612100EE0FCF /* PersistenceCommandRunnerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 34B0A5F4305C612100EE0FCF /* PersistenceCommandRunnerTests.swift */; };
+		A10000000000000000000001 /* LiftlyLiveActivity.appex in Embed App Extensions */ = {isa = PBXBuildFile; fileRef = A10000000000000000000002; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -31,7 +32,12 @@
 			remoteGlobalIDString = 34300FE62F7C4E0B00BD6A4F;
 			remoteInfo = Rack;
 		};
+		A10000000000000000000003 = {isa = PBXContainerItemProxy; containerPortal = 34300FDF2F7C4E0B00BD6A4F; proxyType = 1; remoteGlobalIDString = A10000000000000000000004; remoteInfo = LiftlyLiveActivity; };
 /* End PBXContainerItemProxy section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+		A1000000000000000000000F /* Embed App Extensions */ = {isa = PBXCopyFilesBuildPhase; buildActionMask = 2147483647; dstPath = ""; dstSubfolderSpec = 13; files = (A10000000000000000000001, ); name = "Embed App Extensions"; runOnlyForDeploymentPostprocessing = 0; };
+/* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
 		34300FE72F7C4E0B00BD6A4F /* Rack.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Rack.app; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -44,6 +50,7 @@
 		34B0A5F6305C612100EE0FCF /* ProgressViewModelCommandTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProgressViewModelCommandTests.swift; sourceTree = "<group>"; };
 		34B0A5F7305C612100EE0FCF /* TestSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TestSupport.swift; sourceTree = "<group>"; };
 		34B0A5F8305C612100EE0FCF /* WeightInputTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WeightInputTests.swift; sourceTree = "<group>"; };
+		A10000000000000000000002 /* LiftlyLiveActivity.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = LiftlyLiveActivity.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -54,6 +61,7 @@
 			);
 			target = 34300FE62F7C4E0B00BD6A4F /* Rack */;
 		};
+		A10000000000000000000005 = {isa = PBXFileSystemSynchronizedBuildFileExceptionSet; membershipExceptions = (Info.plist, ); target = A10000000000000000000004; };
 /* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -70,6 +78,8 @@
 			path = RackUITests;
 			sourceTree = "<group>";
 		};
+		A10000000000000000000006 /* LiftlyLiveActivity */ = {isa = PBXFileSystemSynchronizedRootGroup; exceptions = (A10000000000000000000005, ); path = LiftlyLiveActivity; sourceTree = "<group>"; };
+		A10000000000000000000007 /* LiveActivityShared */ = {isa = PBXFileSystemSynchronizedRootGroup; path = LiveActivityShared; sourceTree = "<group>"; };
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -94,6 +104,7 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		A10000000000000000000008 = {isa = PBXFrameworksBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0; };
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
@@ -103,6 +114,8 @@
 				34B0A5F9305C612100EE0FCF /* RackTests */,
 				34300FE92F7C4E0B00BD6A4F /* Rack */,
 				343880F630617C2A002D190A /* RackUITests */,
+				A10000000000000000000006 /* LiftlyLiveActivity */,
+				A10000000000000000000007 /* LiveActivityShared */,
 				34300FE82F7C4E0B00BD6A4F /* Products */,
 			);
 			sourceTree = "<group>";
@@ -111,6 +124,7 @@
 			isa = PBXGroup;
 			children = (
 				34300FE72F7C4E0B00BD6A4F /* Rack.app */,
+				A10000000000000000000002 /* LiftlyLiveActivity.appex */,
 				34B0A5E9305C5CA200EE0FCF /* LiftlyUnitTests.xctest */,
 				343880F530617C2A002D190A /* RackUITests.xctest */,
 			);
@@ -141,13 +155,16 @@
 				34300FE32F7C4E0B00BD6A4F /* Sources */,
 				34300FE42F7C4E0B00BD6A4F /* Frameworks */,
 				34300FE52F7C4E0B00BD6A4F /* Resources */,
+				A1000000000000000000000F /* Embed App Extensions */,
 			);
 			buildRules = (
 			);
 			dependencies = (
+				A1000000000000000000000C,
 			);
 			fileSystemSynchronizedGroups = (
 				34300FE92F7C4E0B00BD6A4F /* Rack */,
+				A10000000000000000000007 /* LiveActivityShared */,
 			);
 			name = Rack;
 			packageProductDependencies = (
@@ -199,6 +216,7 @@
 			productReference = 34B0A5E9305C5CA200EE0FCF /* LiftlyUnitTests.xctest */;
 			productType = "com.apple.product-type.bundle.unit-test";
 		};
+		A10000000000000000000004 /* LiftlyLiveActivity */ = {isa = PBXNativeTarget; buildConfigurationList = A10000000000000000000009; buildPhases = (A1000000000000000000000A, A10000000000000000000008, A1000000000000000000000B, ); buildRules = (); dependencies = (); fileSystemSynchronizedGroups = (A10000000000000000000006, A10000000000000000000007, ); name = LiftlyLiveActivity; productName = LiftlyLiveActivity; productReference = A10000000000000000000002; productType = "com.apple.product-type.app-extension"; };
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -237,6 +255,7 @@
 			projectRoot = "";
 			targets = (
 				34300FE62F7C4E0B00BD6A4F /* Rack */,
+				A10000000000000000000004 /* LiftlyLiveActivity */,
 				34B0A5E8305C5CA200EE0FCF /* LiftlyUnitTests */,
 				343880F430617C2A002D190A /* RackUITests */,
 			);
@@ -265,6 +284,7 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		A1000000000000000000000B = {isa = PBXResourcesBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0; };
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
@@ -296,6 +316,7 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		A1000000000000000000000A = {isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0; };
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
@@ -309,6 +330,7 @@
 			target = 34300FE62F7C4E0B00BD6A4F /* Rack */;
 			targetProxy = 34B0A5ED305C5CA200EE0FCF /* PBXContainerItemProxy */;
 		};
+		A1000000000000000000000C = {isa = PBXTargetDependency; target = A10000000000000000000004; targetProxy = A10000000000000000000003; };
 /* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
@@ -616,6 +638,8 @@
 			};
 			name = Release;
 		};
+		A1000000000000000000000D /* Debug */ = {isa = XCBuildConfiguration; buildSettings = {APPLICATION_EXTENSION_API_ONLY = YES; CODE_SIGN_STYLE = Automatic; CURRENT_PROJECT_VERSION = 1; DEVELOPMENT_TEAM = XLW8A9X97L; GENERATE_INFOPLIST_FILE = YES; INFOPLIST_FILE = LiftlyLiveActivity/Info.plist; INFOPLIST_KEY_CFBundleDisplayName = Liftly; IPHONEOS_DEPLOYMENT_TARGET = 27.0; LD_RUNPATH_SEARCH_PATHS = ("$(inherited)", "@executable_path/Frameworks", "@executable_path/../../Frameworks", ); MARKETING_VERSION = 1.0; PRODUCT_BUNDLE_IDENTIFIER = com.matthewstone.liftly.liveactivity; PRODUCT_NAME = "$(TARGET_NAME)"; SDKROOT = iphoneos; SKIP_INSTALL = YES; SUPPORTED_PLATFORMS = "iphoneos iphonesimulator"; SUPPORTS_MACCATALYST = NO; SWIFT_APPROACHABLE_CONCURRENCY = YES; SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor; SWIFT_EMIT_LOC_STRINGS = YES; SWIFT_VERSION = 5.0; TARGETED_DEVICE_FAMILY = 1; SWIFT_ACTIVE_COMPILATION_CONDITIONS = "$(inherited) LIFTLY_EXTENSION DEBUG"; }; name = Debug; };
+		A1000000000000000000000E /* Release */ = {isa = XCBuildConfiguration; buildSettings = {APPLICATION_EXTENSION_API_ONLY = YES; CODE_SIGN_STYLE = Automatic; CURRENT_PROJECT_VERSION = 1; DEVELOPMENT_TEAM = XLW8A9X97L; GENERATE_INFOPLIST_FILE = YES; INFOPLIST_FILE = LiftlyLiveActivity/Info.plist; INFOPLIST_KEY_CFBundleDisplayName = Liftly; IPHONEOS_DEPLOYMENT_TARGET = 27.0; LD_RUNPATH_SEARCH_PATHS = ("$(inherited)", "@executable_path/Frameworks", "@executable_path/../../Frameworks", ); MARKETING_VERSION = 1.0; PRODUCT_BUNDLE_IDENTIFIER = com.matthewstone.liftly.liveactivity; PRODUCT_NAME = "$(TARGET_NAME)"; SDKROOT = iphoneos; SKIP_INSTALL = YES; SUPPORTED_PLATFORMS = "iphoneos iphonesimulator"; SUPPORTS_MACCATALYST = NO; SWIFT_APPROACHABLE_CONCURRENCY = YES; SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor; SWIFT_EMIT_LOC_STRINGS = YES; SWIFT_VERSION = 5.0; TARGETED_DEVICE_FAMILY = 1; SWIFT_ACTIVE_COMPILATION_CONDITIONS = "$(inherited) LIFTLY_EXTENSION "; }; name = Release; };
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -655,6 +679,7 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
+		A10000000000000000000009 = {isa = XCConfigurationList; buildConfigurations = (A1000000000000000000000D, A1000000000000000000000E, ); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release; };
 /* End XCConfigurationList section */
 	};
 	rootObject = 34300FDF2F7C4E0B00BD6A4F /* Project object */;

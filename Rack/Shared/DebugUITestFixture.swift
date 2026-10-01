@@ -15,14 +15,14 @@ enum DebugUITestFixture {
         case missingExerciseSeed
     }
 
-    /// Reads `-LiftlyUITestFixture <reorder|history|firstRun> <id>`.
+    /// Reads `-LiftlyUITestFixture <reorder|history|firstRun|liveActivity> <id>`.
     static var current: Configuration? {
         let arguments = ProcessInfo.processInfo.arguments
         guard let index = arguments.firstIndex(of: "-LiftlyUITestFixture"),
               arguments.indices.contains(index + 2) else { return nil }
         let name = arguments[index + 1]
         let id = arguments[index + 2]
-        guard ["reorder", "history", "firstRun"].contains(name),
+        guard ["reorder", "history", "firstRun", "liveActivity"].contains(name),
               !id.isEmpty,
               id.unicodeScalars.allSatisfy({ CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "-")).contains($0) })
         else { return nil }
@@ -71,19 +71,42 @@ enum DebugUITestFixture {
             return
         }
 
-        let program = Program(name: name == "reorder" ? "UI Reorder" : "UI History")
+        let program = Program(name: name == "liveActivity" ? "UI Live Activity" : name == "reorder" ? "UI Reorder" : "UI History")
         program.isActive = true
         context.insert(program)
 
-        let dayNames = name == "reorder" ? ["Day A", "Day B", "Day C"] : ["Day A"]
+        let dayNames = name == "reorder" ? ["Day A", "Day B", "Day C"] : name == "liveActivity" ? ["Push Day", "Other Day", "Empty Day"] : ["Day A"]
         var days: [WorkoutTemplate] = []
         for (index, dayName) in dayNames.enumerated() {
             let day = WorkoutTemplate(name: dayName, orderIndex: index)
+            if name == "liveActivity" {
+                day.id = UUID(uuidString: String(format: "00000000-0000-0000-0000-%012d", index + 1))!
+            }
             day.program = program
             context.insert(day)
             days.append(day)
         }
 
+        if name == "liveActivity" {
+            for entry in ExerciseLibrary.seed {
+                context.insert(Exercise(name: entry.name, muscleGroup: entry.muscleGroup, equipment: entry.equipment))
+            }
+            let exercises = try context.fetch(FetchDescriptor<Exercise>(sortBy: [SortDescriptor(\.name)]))
+            guard exercises.count >= 5 else { throw FixtureError.missingExerciseSeed }
+            for day in days.prefix(2) {
+                for (index, exercise) in exercises.prefix(5).enumerated() {
+                    let planned = PlannedExercise(
+                        exercise: exercise, sets: 3, reps: 8,
+                        repTargetType: index == 1 ? .range : index == 4 ? .failure : .exact,
+                        targetWeight: index == 4 ? nil : 45.125,
+                        orderIndex: index
+                    )
+                    planned.workoutTemplate = day
+                    context.insert(planned)
+                }
+            }
+            return
+        }
         guard name == "history" else { return }
         guard let entry = ExerciseLibrary.seed.first,
               let day = days.first else { throw FixtureError.missingExerciseSeed }

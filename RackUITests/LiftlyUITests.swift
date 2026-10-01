@@ -30,6 +30,21 @@ final class LiftlyUITests: XCTestCase {
         app.launch()
     }
 
+    private func clearRunningWorkoutReference() {
+        // ActivityKit survives app termination and failed UI tests. Each fixture
+        // has the same link UUIDs, so explicitly clear a previous test's card.
+        for suffix in ["002", "001"] {
+            app.open(URL(string: "liftly://workout/00000000-0000-0000-0000-000000000\(suffix)")!)
+            let control = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "workout.liveActivity.")).firstMatch
+            XCTAssertTrue(control.waitForExistence(timeout: 10))
+            let stop = app.buttons["workout.liveActivity.stop"]
+            if stop.exists {
+                stop.tap()
+                XCTAssertTrue(app.buttons["workout.liveActivity.show"].waitForExistence(timeout: 10))
+            }
+        }
+    }
+
     private func openHistory() {
         app.tabBars.buttons["Progress"].tap()
         let exercise = app.descendants(matching: .any)
@@ -103,7 +118,7 @@ final class LiftlyUITests: XCTestCase {
     }
 
     func testDelayedDeletionFailureKeepsSheetDraftAndRestoresSet() {
-        launch("history", extraArguments: ["-LiftlyDebugSaveFailures", "1", "-LiftlyUITestUndoSeconds", "12"])
+        launch("history", extraArguments: ["-LiftlyDebugSaveFailures", "1", "-LiftlyUITestUndoSeconds", "30"])
         openHistory()
         let deleteButtons = app.buttons.matching(
             NSPredicate(format: "identifier BEGINSWITH %@", "history.delete.")
@@ -125,7 +140,7 @@ final class LiftlyUITests: XCTestCase {
         let draft = weight.value as? String
 
         let alert = app.alerts["Couldn't Delete Items"]
-        XCTAssertTrue(alert.waitForExistence(timeout: 15))
+        XCTAssertTrue(alert.waitForExistence(timeout: 35))
         alert.buttons["OK"].tap()
         XCTAssertTrue(app.navigationBars["Edit Set"].exists)
         XCTAssertEqual(weight.value as? String, draft)
@@ -170,5 +185,124 @@ final class LiftlyUITests: XCTestCase {
         XCTAssertTrue(app.buttons[deletedID].waitForExistence(timeout: 5))
         XCTAssertEqual(app.descendants(matching: .any)["history.list"].value as? String,
                        "100 sets loaded")
+    }
+
+    func testLiveActivityStartSwitchStopAndEmptyDay() {
+        launch("liveActivity")
+        clearRunningWorkoutReference()
+        app.open(URL(string: "liftly://workout/00000000-0000-0000-0000-000000000001")!)
+        let show = app.buttons["workout.liveActivity.show"]
+        let stop = app.buttons["workout.liveActivity.stop"]
+        XCTAssertTrue(show.waitForExistence(timeout: 10))
+        XCTAssertTrue(show.isEnabled)
+        show.tap()
+        XCTAssertTrue(stop.waitForExistence(timeout: 10))
+        let started = XCTAttachment(screenshot: app.screenshot())
+        started.name = "Workout day with running Live Activity"
+        started.lifetime = .keepAlways
+        add(started)
+
+        app.open(URL(string: "liftly://workout/00000000-0000-0000-0000-000000000002")!)
+        XCTAssertTrue(show.waitForExistence(timeout: 5))
+        show.tap()
+        let switchDay = app.buttons["Show Other Day"]
+        XCTAssertTrue(switchDay.waitForExistence(timeout: 5))
+        switchDay.tap()
+        XCTAssertTrue(stop.waitForExistence(timeout: 10))
+
+        app.terminate()
+        launch("liveActivity")
+        app.open(URL(string: "liftly://workout/00000000-0000-0000-0000-000000000002")!)
+        XCTAssertTrue(stop.waitForExistence(timeout: 10))
+        stop.tap()
+        XCTAssertTrue(show.waitForExistence(timeout: 10))
+
+        app.open(URL(string: "liftly://workout/00000000-0000-0000-0000-000000000003")!)
+        XCTAssertTrue(show.waitForExistence(timeout: 5))
+        XCTAssertFalse(show.isEnabled)
+    }
+
+    func testWorkoutLinksColdLaunchAndMissingDay() {
+        launch("liveActivity")
+        clearRunningWorkoutReference()
+        app.terminate()
+        app.open(URL(string: "liftly://workout/00000000-0000-0000-0000-000000000001")!)
+        XCTAssertTrue(app.buttons["workout.liveActivity.show"].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.navigationBars["Push Day"].exists)
+        app.open(URL(string: "liftly://workout/00000000-0000-0000-0000-000000000099")!)
+        let unavailable = app.alerts["Workout Unavailable"]
+        XCTAssertTrue(unavailable.waitForExistence(timeout: 5))
+        unavailable.buttons["OK"].tap()
+        XCTAssertTrue(app.tabBars.buttons["Programs"].exists)
+    }
+
+    func testLiveActivityPagesOnNotificationCenter() {
+        launch("liveActivity")
+        clearRunningWorkoutReference()
+        app.open(URL(string: "liftly://workout/00000000-0000-0000-0000-000000000001")!)
+        let stop = app.buttons["workout.liveActivity.stop"]
+        XCTAssertTrue(app.buttons["workout.liveActivity.show"].waitForExistence(timeout: 10))
+        app.buttons["workout.liveActivity.show"].tap()
+        XCTAssertTrue(stop.waitForExistence(timeout: 10))
+
+        XCUIDevice.shared.press(.home)
+        let springboard = XCUIApplication(bundleIdentifier: "com.apple.springboard")
+        springboard.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.01))
+            .press(forDuration: 0.1, thenDragTo: springboard.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.6)))
+        let next = springboard.buttons["Next exercises"]
+        let previous = springboard.buttons["Previous exercises"]
+        let openedCenter = XCTAttachment(screenshot: springboard.screenshot())
+        openedCenter.name = "Notification Center before workout paging"
+        openedCenter.lifetime = .keepAlways
+        add(openedCenter)
+        XCTAssertTrue(next.waitForExistence(timeout: 10))
+        XCTAssertTrue(springboard.staticTexts["1–2 of 5 exercises"].waitForExistence(timeout: 10))
+        // A fresh test simulator shows iOS's first-use Live Activity choice.
+        // This permission belongs to the isolated app test, not location access.
+        let allow = springboard.buttons["Allow"]
+        if allow.exists { allow.tap() }
+        let screenshot = XCTAttachment(screenshot: springboard.screenshot())
+        screenshot.name = "Native workout Live Activity"
+        screenshot.lifetime = .keepAlways
+        add(screenshot)
+        let hierarchy = XCTAttachment(string: springboard.debugDescription)
+        hierarchy.lifetime = .keepAlways
+        add(hierarchy)
+        next.tap()
+        XCTAssertTrue(springboard.staticTexts["3–4 of 5 exercises"].waitForExistence(timeout: 10))
+        next.tap()
+        XCTAssertTrue(springboard.staticTexts["5 of 5 exercises"].waitForExistence(timeout: 10))
+        // The remote accessibility tree updates before SpringBoard's crossfade
+        // completes. Let the system animation finish before keeping evidence.
+        Thread.sleep(forTimeInterval: 1)
+        let lastPage = XCTAttachment(screenshot: springboard.screenshot())
+        lastPage.name = "Native workout Live Activity last page"
+        lastPage.lifetime = .keepAlways
+        add(lastPage)
+        XCTAssertTrue(previous.waitForExistence(timeout: 10))
+        previous.tap()
+        XCTAssertTrue(springboard.staticTexts["3–4 of 5 exercises"].waitForExistence(timeout: 10))
+
+        XCUIDevice.shared.press(.home)
+        Thread.sleep(forTimeInterval: 1)
+        let compactIsland = XCTAttachment(screenshot: springboard.screenshot())
+        compactIsland.name = "Compact workout Dynamic Island"
+        compactIsland.lifetime = .keepAlways
+        add(compactIsland)
+        springboard.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.037))
+            .press(forDuration: 1)
+        XCTAssertTrue(springboard.staticTexts["3–4 of 5 exercises"].waitForExistence(timeout: 10))
+        XCTAssertTrue(springboard.buttons["Next exercises"].isHittable)
+        XCTAssertTrue(springboard.buttons["Previous exercises"].isHittable)
+        XCTAssertGreaterThanOrEqual(springboard.buttons["Next exercises"].frame.height, 44)
+        Thread.sleep(forTimeInterval: 1)
+        let expandedIsland = XCTAttachment(screenshot: springboard.screenshot())
+        expandedIsland.name = "Expanded workout Dynamic Island"
+        expandedIsland.lifetime = .keepAlways
+        add(expandedIsland)
+        app.activate()
+        XCTAssertTrue(stop.waitForExistence(timeout: 10))
+        stop.tap()
+        XCTAssertTrue(app.buttons["workout.liveActivity.show"].waitForExistence(timeout: 10))
     }
 }

@@ -15,6 +15,19 @@ enum PersistentStoreKind: String {
 /// and the app shows a recovery screen that can retry.
 @Observable
 final class AppDataStore {
+    /// Foreground UI and headless App Intents share one store-opening lifecycle.
+    static let shared: AppDataStore = {
+        #if DEBUG
+        if let fixture = DebugUITestFixture.current {
+            return AppDataStore(
+                openContainer: { _ in try DebugUITestFixture.open(fixture) },
+                prepareContainer: { $0.mainContext.autosaveEnabled = false }
+            )
+        }
+        #endif
+        return AppDataStore()
+    }()
+
     enum Phase {
         case loading
         case ready(ModelContainer)
@@ -44,6 +57,14 @@ final class AppDataStore {
 
     var container: ModelContainer? {
         guard case .ready(let container) = phase else { return nil }
+        return container
+    }
+
+    func readyContainer() async throws -> ModelContainer {
+        // An intent can arrive while the foreground root is opening the store.
+        while isOpening { await Task.yield() }
+        if case .loading = phase { await open() }
+        guard let container else { throw WorkoutActivityError.storeUnavailable }
         return container
     }
 

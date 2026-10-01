@@ -3,6 +3,7 @@ import SwiftData
 
 struct AppRootView: View {
     let dataStore: AppDataStore
+    @State private var pendingWorkoutLink: UUID?
 
     var body: some View {
         ZStack {
@@ -16,12 +17,17 @@ struct AppRootView: View {
             case .ready(let container):
                 LoadedAppView(
                     container: container,
-                    isCloudSyncUnavailable: dataStore.isCloudSyncUnavailable
+                    isCloudSyncUnavailable: dataStore.isCloudSyncUnavailable,
+                    workoutLink: pendingWorkoutLink,
+                    onWorkoutLinkHandled: { pendingWorkoutLink = nil }
                 )
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .appBackground()
+        .onOpenURL { url in
+            if let id = WorkoutActivityLink.workoutID(from: url) { pendingWorkoutLink = id }
+        }
         .task {
             await dataStore.open()
         }
@@ -30,6 +36,8 @@ struct AppRootView: View {
 
 private struct LoadedAppView: View {
     let container: ModelContainer
+    let workoutLink: UUID?
+    let onWorkoutLinkHandled: () -> Void
     /// The Undo window without VoiceOver.
     private let baseUndoInterval: TimeInterval
 
@@ -38,9 +46,13 @@ private struct LoadedAppView: View {
     @State private var alertCenter: PersistenceAlertCenter
     @State private var deletionCoordinator: DeletionCoordinator
     @State private var showingSyncNotice: Bool
+    @State private var activityCoordinator = WorkoutActivityCoordinator.shared
+    @AppStorage("weightUnit") private var weightUnit: WeightUnit = .lbs
 
-    init(container: ModelContainer, isCloudSyncUnavailable: Bool) {
+    init(container: ModelContainer, isCloudSyncUnavailable: Bool, workoutLink: UUID?, onWorkoutLinkHandled: @escaping () -> Void) {
         self.container = container
+        self.workoutLink = workoutLink
+        self.onWorkoutLinkHandled = onWorkoutLinkHandled
         let center = PersistenceAlertCenter()
         _alertCenter = State(initialValue: center)
         #if DEBUG
@@ -58,10 +70,11 @@ private struct LoadedAppView: View {
     }
 
     var body: some View {
-        ContentView()
+        ContentView(workoutLink: workoutLink, onWorkoutLinkHandled: onWorkoutLinkHandled)
             .modelContainer(container)
             .environment(alertCenter)
             .environment(deletionCoordinator)
+            .environment(activityCoordinator)
             .deletionUndoToast(deletionCoordinator)
             .overlay(alignment: .top) {
                 if showingSyncNotice {
@@ -75,6 +88,7 @@ private struct LoadedAppView: View {
                 switch phase {
                 case .active:
                     deletionCoordinator.setActive(true)
+                    Task { await activityCoordinator.refresh() }
                 case .background:
                     // Undo can't be offered while the app isn't visible, and iOS may
                     // terminate it, so save pending deletions now.
@@ -85,6 +99,14 @@ private struct LoadedAppView: View {
                     deletionCoordinator.setActive(false)
                 }
             }
+            .onAppear {
+                activityCoordinator.deletionCoordinator = deletionCoordinator
+                activityCoordinator.synchronize()
+            }
+            .onChange(of: weightUnit) { _, _ in
+                Task { await activityCoordinator.refresh() }
+            }
+            .task { await activityCoordinator.refresh() }
             .onChange(of: isVoiceOverEnabled, initial: true) { _, isEnabled in
                 deletionCoordinator.setUndoInterval(
                     isEnabled ? max(baseUndoInterval, DeletionCoordinator.voiceOverUndoInterval) : baseUndoInterval

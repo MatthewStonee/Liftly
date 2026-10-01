@@ -1,4 +1,5 @@
 import Foundation
+import ActivityKit
 import SwiftData
 import Testing
 @testable import Rack
@@ -361,4 +362,339 @@ struct ProgramCommandTests {
         try context.save()
         return planned
     }
+}
+
+// MARK: Workout reference Live Activities
+
+@MainActor
+private final class TestWorkoutActivityClient: WorkoutActivityClient {
+    var isEnabled = true
+    var records: [WorkoutActivityRecord] = []
+    var startFailure = false
+    private(set) var startCount = 0
+    private(set) var endCount = 0
+
+    func start(state: WorkoutActivityAttributes.ContentState) throws {
+        if startFailure { throw WorkoutActivityError.startFailed }
+        startCount += 1
+        records.append(.init(id: UUID().uuidString, state: state))
+    }
+
+    func update(id: String, state: WorkoutActivityAttributes.ContentState) async {
+        await Task.yield() // Exercise MainActor reentrancy in paging tests.
+        if let index = records.firstIndex(where: { $0.id == id }) {
+            records[index] = .init(id: id, state: state)
+        }
+    }
+
+    func end(id: String) async {
+        await Task.yield()
+        records.removeAll { $0.id == id }
+        endCount += 1
+    }
+}
+
+@MainActor
+struct WorkoutActivityTests {
+    private let container: ModelContainer
+    private let store: AppDataStore
+    private let client = TestWorkoutActivityClient()
+    private let workout: WorkoutTemplate
+    private let other: WorkoutTemplate
+
+    init() throws {
+        let container = try TestStore.makeInMemoryContainer()
+        self.container = container
+        store = AppDataStore(openContainer: { _ in container }, prepareContainer: { $0.mainContext.autosaveEnabled = false })
+        let context = container.mainContext
+        let program = Program(name: "Strength")
+        context.insert(program)
+        workout = WorkoutTemplate(name: "Push Day")
+        workout.program = program
+        context.insert(workout)
+        other = WorkoutTemplate(name: "Push Day", orderIndex: 1)
+        other.program = program
+        context.insert(other)
+        for day in [workout, other] {
+            for index in 0..<5 {
+                let exercise = Exercise(name: "Exercise \(index)", muscleGroup: .chest, equipment: .barbell)
+                context.insert(exercise)
+                let planned = PlannedExercise(
+                    exercise: exercise, sets: index + 1, reps: 8,
+                    repTargetType: index == 1 ? .range : index == 4 ? .failure : .exact,
+                    targetWeight: index == 4 ? nil : 45.125, orderIndex: index
+                )
+                planned.workoutTemplate = day
+                context.insert(planned)
+            }
+        }
+        try context.save()
+    }
+
+    private func coordinator(unit: WeightUnit = .lbs) -> WorkoutActivityCoordinator {
+        WorkoutActivityCoordinator(store: store, client: client, weightUnit: { unit })
+    }
+
+    @Test func projectionPreservesOrderingRepModesAndOptionalWeights() throws {
+        let snapshot = WorkoutActivitySnapshot(workout: workout, unit: .lbs)
+        #expect(snapshot.exercises.map(\.name) == (0..<5).map { "Exercise \($0)" })
+        #expect(snapshot.exercises[0].target == "1 × 8 reps · 45.12 lbs")
+        #expect(snapshot.exercises[1].target.contains("8-12 reps"))
+        #expect(snapshot.exercises[4].target == "5 × to failure")
+        #expect(snapshot.exercises[0].spokenTarget.contains("pounds"))
+        #expect(try snapshot.content().exercises.count == 2)
+    }
+
+    @Test func displayConversionDoesNotChangeExactStoredPounds() throws {
+        let original = workout.sortedExercises.map(\.targetWeight)
+        let snapshot = WorkoutActivitySnapshot(workout: workout, unit: .kg)
+        #expect(snapshot.exercises[0].target.contains("20.47 kg"))
+        #expect(workout.sortedExercises.map(\.targetWeight) == original)
+        #expect(!container.mainContext.hasChanges)
+    }
+
+    @Test func missingExerciseRelationshipsAreExcludedAndEmptyDayIsRejected() throws {
+        for planned in workout.plannedExercisesList { planned.exercise = nil }
+        let snapshot = WorkoutActivitySnapshot(workout: workout, unit: .lbs)
+        #expect(throws: WorkoutActivityError.emptyWorkout) { try snapshot.content() }
+    }
+
+    @Test func unicodeAndEscapedNamesFitPayloadWithoutEditingModels() throws {
+        workout.name = String(repeating: "\u{0001}💪", count: 2_000)
+        for planned in workout.plannedExercisesList {
+            planned.exercise?.name = String(repeating: "\u{0001}💪", count: 2_000)
+        }
+        let name = workout.name
+        let snapshot = WorkoutActivitySnapshot(workout: workout, unit: .lbs)
+        let state = try snapshot.content()
+        let encoder = JSONEncoder()
+        #expect(try encoder.encode(state).count + encoder.encode(WorkoutActivityAttributes(referenceID: UUID())).count <= 3_800)
+        #expect(workout.name == name)
+        #expect(state.workoutName.hasSuffix("…"))
+    }
+
+    @Test func pageClampingAnchoringAndRangeLabels() throws {
+        let snapshot = WorkoutActivitySnapshot(workout: workout, unit: .lbs)
+        #expect(try snapshot.content(startingIndex: -100).startingIndex == 0)
+        let last = try snapshot.content(startingIndex: 100)
+        #expect(last.startingIndex == 4)
+        #expect(last.rangeLabel(visibleCount: 1) == "5 of 5 exercises")
+        let anchor = try snapshot.content(startingIndex: 0, anchorID: snapshot.exercises[3].id)
+        #expect(anchor.startingIndex == 3)
+        #expect(try snapshot.content().rangeLabel(visibleCount: 2) == "1–2 of 5 exercises")
+    }
+
+    @Test func repeatedStartsAndConflictingAutomationDoNotDuplicateOrSwitch() async throws {
+        let coordinator = coordinator()
+        try await coordinator.start(workoutID: workout.id, automatic: true)
+        try await coordinator.page(activityID: coordinator.current!.id, direction: 1, visibleCount: 2)
+        try await coordinator.start(workoutID: workout.id, automatic: true)
+        #expect(coordinator.current?.state.startingIndex == 2)
+        #expect(try await coordinator.start(workoutID: other.id, automatic: true) == .preservedExisting)
+        #expect(client.startCount == 1)
+        #expect(coordinator.current?.state.workoutID == workout.id)
+        #expect(client.records.count == 1)
+        await #expect(throws: WorkoutActivityError.missingWorkout) {
+            try await coordinator.start(workoutID: UUID(), automatic: true)
+        }
+    }
+
+    @Test func manualSwitchRequiresConfirmationAndReusesActivity() async throws {
+        let coordinator = coordinator()
+        try await coordinator.start(workoutID: workout.id)
+        let activityID = coordinator.current?.id
+        await #expect(throws: WorkoutActivityError.needsSwitch) { try await coordinator.start(workoutID: other.id) }
+        try await coordinator.start(workoutID: other.id, allowSwitch: true)
+        #expect(coordinator.current?.id == activityID)
+        #expect(coordinator.current?.state.workoutID == other.id)
+        #expect(client.startCount == 1)
+    }
+
+    @Test func rapidPagingSerializesAcrossActivityKitAwaits() async throws {
+        let coordinator = coordinator()
+        try await coordinator.start(workoutID: workout.id)
+        let id = try #require(coordinator.current?.id)
+        async let first: Void = coordinator.page(activityID: id, direction: 1, visibleCount: 2)
+        async let second: Void = coordinator.page(activityID: id, direction: 1, visibleCount: 2)
+        _ = try await (first, second)
+        #expect(coordinator.current?.state.startingIndex == 4)
+        #expect(coordinator.operationCount == 0)
+    }
+
+    @Test func pagingUsesNewerRenderAndIgnoresOlderQueuedRender() async throws {
+        let initial = try WorkoutActivitySnapshot(workout: workout, unit: .lbs).content()
+        client.records = [.init(id: "restored", state: initial)]
+        let coordinator = coordinator()
+        let snapshot = WorkoutActivitySnapshot(workout: workout, unit: .lbs)
+        let newer = WorkoutActivityPageReference(workoutID: workout.id, startingIndex: 2,
+                                                 anchorID: snapshot.exercises[2].id, revision: 1)
+        try await coordinator.page(activityID: "restored", direction: 1, visibleCount: 2, displayedPage: newer)
+        #expect(coordinator.current?.state.startingIndex == 4)
+        #expect(coordinator.current?.state.revision == 2)
+        try await coordinator.page(activityID: "restored", direction: -1, visibleCount: 2, displayedPage: newer)
+        #expect(coordinator.current?.state.startingIndex == 2)
+        #expect(coordinator.current?.state.revision == 3)
+    }
+
+    @Test func oldActivityPayloadDecodesWithoutPageVersion() throws {
+        let state = try WorkoutActivitySnapshot(workout: workout, unit: .lbs).content()
+        let encoded = try JSONEncoder().encode(state)
+        var value = try #require(JSONSerialization.jsonObject(with: encoded) as? [String: Any])
+        value.removeValue(forKey: "revision")
+        let decoded = try JSONDecoder().decode(WorkoutActivityAttributes.ContentState.self,
+                                               from: JSONSerialization.data(withJSONObject: value))
+        #expect(decoded.revision == 0)
+        #expect(decoded.exercises == state.exercises)
+    }
+
+    @Test func largerTextPagingReachesEveryExerciseAndStaleActivityIDsDoNothing() async throws {
+        let coordinator = coordinator()
+        try await coordinator.start(workoutID: workout.id)
+        let id = try #require(coordinator.current?.id)
+        for index in 1..<5 {
+            try await coordinator.page(activityID: id, direction: 1, visibleCount: 1)
+            #expect(coordinator.current?.state.startingIndex == index)
+        }
+        try await coordinator.page(activityID: "dismissed-activity", direction: -1, visibleCount: 1)
+        #expect(coordinator.current?.state.startingIndex == 4)
+        try await coordinator.page(activityID: id, direction: -1, visibleCount: 1)
+        #expect(coordinator.current?.state.startingIndex == 3)
+    }
+
+    @Test func savedEditsAndReorderRefreshWhileDraftsDoNot() async throws {
+        let coordinator = coordinator()
+        try await coordinator.start(workoutID: workout.id)
+        let id = try #require(coordinator.current?.id)
+        try await coordinator.page(activityID: id, direction: 1, visibleCount: 2)
+        let anchor = try #require(coordinator.current?.state.exercises.first?.id)
+        workout.name = "Draft"
+        await coordinator.refresh()
+        #expect(coordinator.current?.state.workoutName == "Push Day")
+        try container.mainContext.save()
+        let ordered = workout.sortedExercises
+        for (index, planned) in ordered.reversed().enumerated() { planned.orderIndex = index }
+        try container.mainContext.save()
+        await coordinator.refresh()
+        #expect(coordinator.current?.state.workoutName == "Draft")
+        #expect(coordinator.current?.state.exercises.first?.id == anchor)
+    }
+
+    @Test func unitPreferenceRefreshesActivityWithoutChangingStoredWeights() async throws {
+        var unit: WeightUnit = .lbs
+        let coordinator = WorkoutActivityCoordinator(store: store, client: client, weightUnit: { unit })
+        try await coordinator.start(workoutID: workout.id)
+        unit = .kg
+        await coordinator.refresh()
+        #expect(coordinator.current?.state.exercises.first?.target.contains("kg") == true)
+        #expect(workout.sortedExercises.first?.targetWeight == 45.125)
+    }
+
+    @Test func pendingDeletionKeepsSavedReferenceAndUndoRestoresStartEligibility() async throws {
+        let coordinator = coordinator()
+        let deletions = DeletionCoordinator(context: container.mainContext, alertCenter: PersistenceAlertCenter())
+        coordinator.deletionCoordinator = deletions
+        try await coordinator.start(workoutID: workout.id)
+        deletions.request(workout)
+        await coordinator.refresh()
+        #expect(coordinator.current?.state.workoutID == workout.id)
+        await #expect(throws: WorkoutActivityError.pendingDeletion) { try await coordinator.start(workoutID: workout.id) }
+        deletions.undo()
+        try await coordinator.start(workoutID: workout.id)
+        #expect(client.records.count == 1)
+        deletions.request(workout)
+        deletions.commitPendingNow()
+        await coordinator.refresh()
+        #expect(coordinator.current == nil)
+    }
+
+    @Test func emptyOrDeletedWorkoutEndsReference() async throws {
+        let coordinator = coordinator()
+        try await coordinator.start(workoutID: workout.id)
+        for planned in workout.plannedExercisesList { container.mainContext.delete(planned) }
+        try container.mainContext.save()
+        await coordinator.refresh()
+        #expect(coordinator.current == nil)
+        container.mainContext.delete(workout)
+        try container.mainContext.save()
+        await #expect(throws: WorkoutActivityError.missingWorkout) { try await coordinator.start(workoutID: workout.id) }
+    }
+
+    @Test func failuresRetainLastPageAndSuccessfulRefreshClearsStatus() async throws {
+        var failLoad = false
+        let repository = WorkoutActivityRepository(store: store)
+        let coordinator = WorkoutActivityCoordinator(store: store, client: client, weightUnit: { .lbs }, loadSnapshot: { id, unit, deletions in
+            if failLoad { throw WorkoutActivityError.storeUnavailable }
+            return try await repository.snapshot(id: id, unit: unit, hiding: deletions)
+        })
+        try await coordinator.start(workoutID: workout.id)
+        let rows = coordinator.current?.state.exercises
+        failLoad = true
+        await coordinator.refresh()
+        #expect(coordinator.current?.state.needsRefresh == true)
+        #expect(coordinator.current?.state.exercises == rows)
+        failLoad = false
+        await coordinator.refresh()
+        #expect(coordinator.current?.state.needsRefresh == false)
+    }
+
+    @Test func authorizationAndStartFailureLeaveWorkoutDataUntouched() async throws {
+        let coordinator = coordinator()
+        client.isEnabled = false
+        await #expect(throws: WorkoutActivityError.disabled) { try await coordinator.start(workoutID: workout.id) }
+        client.isEnabled = true
+        client.startFailure = true
+        await #expect(throws: WorkoutActivityError.startFailed) { try await coordinator.start(workoutID: workout.id) }
+        #expect(client.records.isEmpty)
+        #expect(!container.mainContext.hasChanges)
+        #expect(workout.sessionsListForTests.isEmpty)
+    }
+
+    @Test func storeFailureIsReportedWithoutStartingActivity() async throws {
+        let failedStore = AppDataStore(openContainer: { _ in throw InjectedSaveFailure() }, prepareContainer: { _ in })
+        let coordinator = WorkoutActivityCoordinator(store: failedStore, client: client)
+        await #expect(throws: WorkoutActivityError.storeUnavailable) { try await coordinator.start(workoutID: workout.id) }
+        #expect(client.startCount == 0)
+        #expect(failedStore.phase.isFailed)
+    }
+
+    @Test func restorationDeduplicatesAndDismissalDoesNotRestart() async throws {
+        let state = try WorkoutActivitySnapshot(workout: workout, unit: .lbs).content()
+        client.records = [.init(id: "first", state: state), .init(id: "second", state: state)]
+        let coordinator = coordinator()
+        await coordinator.refresh()
+        #expect(client.records.count == 1)
+        #expect(client.startCount == 0)
+        client.records = [] // The system or user dismissed it.
+        await coordinator.refresh()
+        #expect(coordinator.current == nil)
+        #expect(client.startCount == 0)
+        await coordinator.stop()
+        await coordinator.stop()
+    }
+
+    @Test func shortcutDayReferencesDisambiguateDuplicateNamesAndRemoveDeletedDays() async throws {
+        let repository = WorkoutActivityRepository(store: store)
+        let before = try await repository.days()
+        #expect(before.count == 2)
+        #expect(Set(before.map(\.id)).count == 2)
+        #expect(before.allSatisfy { $0.programName == "Strength" })
+        let entity = WorkoutDayEntity(reference: before[0])
+        #expect(entity.id == before[0].id)
+        #expect(entity.programName == "Strength")
+        container.mainContext.delete(other)
+        try container.mainContext.save()
+        #expect(try await repository.days().count == 1)
+    }
+
+    @Test func deepLinksAcceptOnlyValidWorkoutURLs() {
+        let id = UUID()
+        #expect(WorkoutActivityLink.workoutID(from: URL(string: "liftly://workout/\(id.uuidString)")!) == id)
+        for url in ["https://workout/\(id)", "liftly://other/\(id)", "liftly://workout/no-id", "liftly://workout/\(id)/extra", "liftly://workout/\(id)?action=delete"] {
+            #expect(WorkoutActivityLink.workoutID(from: URL(string: url)!) == nil)
+        }
+    }
+}
+
+private extension WorkoutTemplate {
+    var sessionsListForTests: [WorkoutSession] { sessions ?? [] }
 }
