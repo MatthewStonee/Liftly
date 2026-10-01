@@ -9,7 +9,6 @@ struct ProgramDetailView: View {
     @State private var showingAddWorkout = false
     @State private var showingEditProgram = false
     @State private var viewModel = ProgramDetailViewModel()
-    @State private var isReorderMode = false
     @State private var persistenceAlert: PersistenceAlert?
     @State private var showingPersistenceAlert = false
     @Environment(DeletionCoordinator.self) private var deletionCoordinator: DeletionCoordinator?
@@ -18,8 +17,7 @@ struct ProgramDetailView: View {
     var body: some View {
         let visibleWorkouts = SiblingOrder.workouts(program.workoutsList)
             .filter { deletionCoordinator?.isPending($0) != true }
-        let canToggleReorderMode = detailMode == .days
-            && deletionCoordinator?.hasPendingWorkouts(in: program) != true
+        let canReorder = deletionCoordinator?.hasPendingWorkouts(in: program) != true
             && !showingAddWorkout
             && visibleWorkouts.count > 1
 
@@ -40,19 +38,15 @@ struct ProgramDetailView: View {
                         GlassEffectContainer(spacing: 12) {
                             ReorderableForEach(
                                 items: visibleWorkouts,
-                                isEnabled: isReorderMode && canToggleReorderMode,
+                                isEnabled: canReorder,
                                 onCommitOrder: { orderedIDs in
                                     commitWorkoutOrder(orderedIDs)
                                 }
-                            ) { workout, dragHandle in
-                                WorkoutTemplateRow(
-                                    workout: workout,
-                                    isReorderMode: isReorderMode,
-                                    dragHandle: dragHandle
-                                )
-                                .accessibilityElement(children: .contain)
-                                .accessibilityLabel(workout.name)
-                                .accessibilityIdentifier("workout.row.\(workout.name)")
+                            ) { workout in
+                                WorkoutTemplateRow(workout: workout)
+                                    .accessibilityElement(children: .contain)
+                                    .accessibilityLabel(workout.name)
+                                    .accessibilityIdentifier("workout.row.\(workout.name)")
                             }
                         }
 
@@ -82,35 +76,17 @@ struct ProgramDetailView: View {
         .titleDisplayMode(.inline)
         .appBackground()
         .toolbar {
-            ToolbarItemGroup(placement: .topBarTrailing) {
-                if isReorderMode {
-                    Button("Done") {
-                        exitReorderMode()
-                    }
-                    .accessibilityLabel("Done Reordering")
-                }
-
+            ToolbarItem(placement: .topBarTrailing) {
                 Menu {
-                    if detailMode == .days && visibleWorkouts.count > 1 && !isReorderMode {
-                        Button {
-                            enterReorderMode(if: canToggleReorderMode)
-                        } label: {
-                            Label("Reorder", systemImage: "arrow.up.arrow.down")
-                        }
-                        .disabled(!canToggleReorderMode)
+                    Button {
+                        showingEditProgram = true
+                    } label: {
+                        Label("Edit Program", systemImage: "pencil")
                     }
-
-                    if !isReorderMode {
-                        Button {
-                            showingEditProgram = true
-                        } label: {
-                            Label("Edit Program", systemImage: "pencil")
-                        }
-                        Button(role: .destructive) {
-                            deleteProgram()
-                        } label: {
-                            Label("Delete Program", systemImage: "trash")
-                        }
+                    Button(role: .destructive) {
+                        deleteProgram()
+                    } label: {
+                        Label("Delete Program", systemImage: "trash")
                     }
                 } label: {
                     Image(systemName: "ellipsis.circle")
@@ -121,14 +97,6 @@ struct ProgramDetailView: View {
         }
         .sheet(isPresented: $showingEditProgram) {
             CreateProgramView(existingProgram: program).deletionUndoToast(deletionCoordinator)
-        }
-        .onChange(of: detailMode) { _, newMode in
-            if newMode == .overview {
-                exitReorderMode()
-            }
-        }
-        .onChange(of: deletionCoordinator?.hasPendingWorkouts(in: program)) { _, pending in
-            if pending == true { exitReorderMode() }
         }
         .persistenceAlert(isPresented: $showingPersistenceAlert, alert: persistenceAlert)
     }
@@ -218,7 +186,7 @@ struct ProgramDetailView: View {
         }
         .buttonStyle(.glass)
         .controlSize(.large)
-        .disabled(isReorderMode || showingAddWorkout)
+        .disabled(showingAddWorkout)
         .accessibilityHint("Tracks this program's exercises on the Progress tab")
         .accessibilityIdentifier("program.setActive")
     }
@@ -229,7 +197,7 @@ struct ProgramDetailView: View {
             Text("Days").tag(ProgramDetailMode.days)
         }
         .pickerStyle(.segmented)
-        .disabled(isReorderMode || showingAddWorkout)
+        .disabled(showingAddWorkout)
         .accessibilityLabel("Program View")
         .accessibilityHint("Switches between the all-days overview and workout day management")
     }
@@ -241,7 +209,6 @@ struct ProgramDetailView: View {
             }
             showAddWorkoutOverlay()
         }
-        .disabled(isReorderMode)
     }
 
     private var emptyWorkoutsState: some View {
@@ -310,15 +277,6 @@ struct ProgramDetailView: View {
     private func presentPersistenceAlert(title: String, error: PersistenceCommandError) {
         persistenceAlert = PersistenceAlert(title: title, error: error)
         showingPersistenceAlert = true
-    }
-
-    private func enterReorderMode(if canToggle: Bool) {
-        guard canToggle else { return }
-        isReorderMode = true
-    }
-
-    private func exitReorderMode() {
-        isReorderMode = false
     }
 }
 
@@ -391,28 +349,13 @@ private struct AddWorkoutOverlay: View {
 
 struct WorkoutTemplateRow: View {
     let workout: WorkoutTemplate
-    let isReorderMode: Bool
-    let dragHandle: ReorderDragHandle
 
     var body: some View {
-        let exercises = workout.sortedExercises
-
-        HStack(spacing: 16) {
-            if isReorderMode {
-                rowContent(exercises: exercises)
-            } else {
-                // Resolved by `ProgramsView`'s `navigationDestination(for:)`.
-                NavigationLink(value: ProgramsRoute.workout(workout)) {
-                    rowContent(exercises: exercises)
-                }
-                .buttonStyle(.plain)
-            }
-
-            if isReorderMode {
-                dragHandle
-                    .accessibilityIdentifier("workout.drag.\(workout.name)")
-            }
+        // Resolved by `ProgramsView`'s `navigationDestination(for:)`.
+        NavigationLink(value: ProgramsRoute.workout(workout)) {
+            rowContent(exercises: workout.sortedExercises)
         }
+        .buttonStyle(.plain)
         .padding(20)
         .glassBackground()
     }
@@ -460,15 +403,11 @@ struct WorkoutTemplateRow: View {
 
             ZStack {
                 Circle()
-                    .fill(isEmpty ? Color.white.opacity(0.05) : Color.blue.opacity(isReorderMode ? 0.08 : 0.15))
+                    .fill(isEmpty ? Color.white.opacity(0.05) : Color.blue.opacity(0.15))
                     .frame(width: 40, height: 40)
                 Image(systemName: "chevron.right")
                     .font(.subheadline.bold())
-                    .foregroundStyle(
-                        isEmpty
-                        ? Color.secondary.opacity(isReorderMode ? 0.22 : 0.4)
-                        : Color.blue.opacity(isReorderMode ? 0.55 : 1.0)
-                    )
+                    .foregroundStyle(isEmpty ? Color.secondary.opacity(0.4) : Color.blue)
             }
             .accessibilityHidden(true)
         }

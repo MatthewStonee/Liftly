@@ -10,7 +10,6 @@ struct WorkoutTemplateDetailView: View {
     @State private var showingExercisePicker = false
     @State private var showingRenameSheet = false
     @State private var viewModel = WorkoutTemplateDetailViewModel()
-    @State private var isReorderMode = false
     @State private var persistenceAlert: PersistenceAlert?
     @State private var showingPersistenceAlert = false
     @Environment(DeletionCoordinator.self) private var deletionCoordinator: DeletionCoordinator?
@@ -18,13 +17,13 @@ struct WorkoutTemplateDetailView: View {
     var body: some View {
         let visibleExercises = SiblingOrder.exercises(workout.plannedExercisesList)
             .filter { deletionCoordinator?.isPending($0) != true }
-        let canToggleReorderMode = deletionCoordinator?.hasPendingExercises(in: workout) != true
+        let canReorder = deletionCoordinator?.hasPendingExercises(in: workout) != true
             && !showingExercisePicker
             && visibleExercises.count > 1
 
         ScrollView {
             VStack(spacing: 12) {
-                WorkoutActivityControl(workout: workout, isReordering: isReorderMode)
+                WorkoutActivityControl(workout: workout)
 
                 if visibleExercises.isEmpty {
                     emptyExercisesState
@@ -32,16 +31,12 @@ struct WorkoutTemplateDetailView: View {
                     GlassEffectContainer(spacing: 12) {
                         ReorderableForEach(
                             items: visibleExercises,
-                            isEnabled: isReorderMode && canToggleReorderMode,
+                            isEnabled: canReorder,
                             onCommitOrder: { orderedIDs in
                                 commitExerciseOrder(orderedIDs)
                             }
-                        ) { planned, dragHandle in
-                            PlannedExerciseRow(
-                                planned: planned,
-                                isReorderMode: isReorderMode,
-                                dragHandle: dragHandle
-                            ) {
+                        ) { planned in
+                            PlannedExerciseRow(planned: planned) {
                                 deletePlannedExercise(planned)
                             }
                         }
@@ -52,7 +47,6 @@ struct WorkoutTemplateDetailView: View {
                     PerformanceSignposts.event("Add Exercise tapped")
                     showingExercisePicker = true
                 }
-                .disabled(isReorderMode)
                 .padding(.top, 4)
             }
             .padding(.horizontal, 16)
@@ -63,35 +57,17 @@ struct WorkoutTemplateDetailView: View {
         .titleDisplayMode(.large)
         .appBackground()
         .toolbar {
-            ToolbarItemGroup(placement: .topBarTrailing) {
-                if isReorderMode {
-                    Button("Done") {
-                        exitReorderMode()
-                    }
-                    .accessibilityLabel("Done Reordering")
-                }
-
+            ToolbarItem(placement: .topBarTrailing) {
                 Menu {
-                    if visibleExercises.count > 1 && !isReorderMode {
-                        Button {
-                            enterReorderMode(if: canToggleReorderMode)
-                        } label: {
-                            Label("Reorder", systemImage: "arrow.up.arrow.down")
-                        }
-                        .disabled(!canToggleReorderMode)
+                    Button {
+                        showingRenameSheet = true
+                    } label: {
+                        Label("Rename", systemImage: "pencil")
                     }
-
-                    if !isReorderMode {
-                        Button {
-                            showingRenameSheet = true
-                        } label: {
-                            Label("Rename", systemImage: "pencil")
-                        }
-                        Button(role: .destructive) {
-                            deleteWorkout()
-                        } label: {
-                            Label("Delete Workout Day", systemImage: "trash")
-                        }
+                    Button(role: .destructive) {
+                        deleteWorkout()
+                    } label: {
+                        Label("Delete Workout Day", systemImage: "trash")
                     }
                 } label: {
                     Image(systemName: "ellipsis.circle")
@@ -107,9 +83,6 @@ struct WorkoutTemplateDetailView: View {
             ExercisePickerView { exercise in
                 addExercise(exercise)
             }.deletionUndoToast(deletionCoordinator)
-        }
-        .onChange(of: deletionCoordinator?.hasPendingExercises(in: workout)) { _, pending in
-            if pending == true { exitReorderMode() }
         }
         .persistenceAlert(isPresented: $showingPersistenceAlert, alert: persistenceAlert)
     }
@@ -149,30 +122,17 @@ struct WorkoutTemplateDetailView: View {
     }
 
     private func deletePlannedExercise(_ planned: PlannedExercise) {
-        exitReorderMode()
         deletionCoordinator?.request(planned)
     }
 
     private func deleteWorkout() {
-        exitReorderMode()
         onDeleteWorkout?()
         dismiss()
-    }
-
-    private func enterReorderMode(if canToggle: Bool) {
-        guard canToggle else { return }
-        isReorderMode = true
-    }
-
-    private func exitReorderMode() {
-        isReorderMode = false
     }
 }
 
 struct PlannedExerciseRow: View {
     let planned: PlannedExercise
-    let isReorderMode: Bool
-    let dragHandle: ReorderDragHandle
     let onDelete: () -> Void
     @State private var showingEdit = false
     @AppStorage("weightUnit") private var weightUnit: WeightUnit = .lbs
@@ -200,32 +160,24 @@ struct PlannedExerciseRow: View {
                     }
                 }
                 Spacer()
-                HStack(spacing: 4) {
-                    if !isReorderMode {
-                        Menu {
-                            Button {
-                                showingEdit = true
-                            } label: {
-                                Label("Edit", systemImage: "pencil")
-                            }
-                            Button(role: .destructive) {
-                                onDelete()
-                            } label: {
-                                Label("Delete", systemImage: "trash")
-                            }
-                        } label: {
-                            Image(systemName: "ellipsis.circle")
-                                .font(.title3)
-                                .foregroundStyle(.secondary)
-                                .frame(width: 44, height: 44)
-                        }
-                        .accessibilityLabel("Exercise Options")
+                Menu {
+                    Button {
+                        showingEdit = true
+                    } label: {
+                        Label("Edit", systemImage: "pencil")
                     }
-
-                    if isReorderMode {
-                        dragHandle
+                    Button(role: .destructive) {
+                        onDelete()
+                    } label: {
+                        Label("Delete", systemImage: "trash")
                     }
+                } label: {
+                    Image(systemName: "ellipsis.circle")
+                        .font(.title3)
+                        .foregroundStyle(.secondary)
+                        .frame(width: 44, height: 44)
                 }
+                .accessibilityLabel("Exercise Options")
             }
 
             HStack(spacing: 8) {
@@ -240,6 +192,7 @@ struct PlannedExerciseRow: View {
         .glassBackground()
         .accessibilityElement(children: .contain)
         .accessibilityLabel(planned.exercise?.name ?? "Exercise")
+        .accessibilityIdentifier("exercise.row.\(planned.exercise?.name ?? "Exercise")")
         .sheet(isPresented: $showingEdit) {
             EditPlannedExerciseView(
                 planned: planned,

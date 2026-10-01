@@ -2,7 +2,6 @@ import SwiftUI
 
 struct WorkoutActivityControl: View {
     let workout: WorkoutTemplate
-    let isReordering: Bool
     @Environment(WorkoutActivityCoordinator.self) private var coordinator: WorkoutActivityCoordinator?
     @Environment(DeletionCoordinator.self) private var deletionCoordinator: DeletionCoordinator?
     @State private var showingSwitch = false
@@ -15,7 +14,6 @@ struct WorkoutActivityControl: View {
         coordinator?.areActivitiesEnabled != true
             || deletionCoordinator?.isPending(workout) == true
             || !workout.plannedExercisesList.contains { $0.exercise != nil && deletionCoordinator?.isPending($0) != true }
-            || isReordering
     }
 
     var body: some View {

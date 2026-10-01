@@ -16,7 +16,8 @@ membership in `LiftlyUnitTests`.
 
 ## UI coverage
 
-- Accepted and canceled drag reordering, including persistence after relaunch.
+- Touch-and-hold reordering of workout days and exercises: accepted and canceled
+  drops, no navigation on drop, and persistence after relaunch.
 - Delayed deletion failures while an edit sheet contains an unsaved draft.
 - History range selection, loading failure and Retry, pagination, and Undo.
 - Workout Live Activity start, confirmed switching, stop, relaunch, empty days,
@@ -38,7 +39,7 @@ The longer fixture interval prevents XCTest's default interruption handler from
 dismissing the injected deletion alert while it is still typing into the sheet.
 
 The tests query these accessibility identifiers, each of which names exactly one
-element: `program.row.<name>`, `workout.row.<name>`, `workout.drag.<name>`,
+element: `program.row.<name>`, `workout.row.<name>`, `exercise.row.<name>`,
 `deletion.undo`, `progress.exercise.<name>`, `progress.viewAllHistory`,
 `history.row/edit/delete.<uuid>`, `history.range.<range>`, `history.list`
 (whose value reads "<n> sets loaded"), `history.loadMore`,
@@ -47,8 +48,8 @@ moving one of these breaks a test, so keep them on the element they name.
 
 ## Verified run
 
-On September 23, 2026, the shared Rack scheme passed all **115 tests**
-(**112 unit tests and 3 UI integration tests**) on iPhone 18 Pro, iOS 27.0,
+On October 1, 2026, the shared Rack scheme passed all **163 tests**
+(**156 unit tests and 7 UI integration tests**) on iPhone 18 Pro, iOS 27.0,
 with zero failures and zero skipped tests. The full run used the scheme's
 normal test settings through XcodeBuildMCP.
 
