@@ -12,6 +12,8 @@ enum ProgramsRoute: Hashable {
 }
 
 struct ProgramsView: View {
+    var workoutLink: UUID? = nil
+    var onWorkoutLinkHandled: () -> Void = {}
     @Environment(\.modelContext) private var context
     @Query(sort: \Program.createdAt, order: .reverse) private var programs: [Program]
     @State private var viewModel = ProgramsViewModel()
@@ -20,6 +22,7 @@ struct ProgramsView: View {
     @State private var path: [ProgramsRoute] = []
     @State private var persistenceAlert: PersistenceAlert?
     @State private var showingPersistenceAlert = false
+    @State private var showingUnavailableWorkout = false
     @Environment(DeletionCoordinator.self) private var deletionCoordinator: DeletionCoordinator?
 
     var body: some View {
@@ -77,6 +80,29 @@ struct ProgramsView: View {
             SettingsView().deletionUndoToast(deletionCoordinator)
         }
         .persistenceAlert(isPresented: $showingPersistenceAlert, alert: persistenceAlert)
+        .onChange(of: workoutLink, initial: true) { _, id in
+            guard let id else { return }
+            defer { onWorkoutLinkHandled() }
+            do {
+                var descriptor = FetchDescriptor<WorkoutTemplate>(predicate: #Predicate { $0.id == id })
+                descriptor.fetchLimit = 1
+                guard let workout = try context.fetch(descriptor).first,
+                      deletionCoordinator?.isPending(workout) != true else {
+                    showingUnavailableWorkout = true
+                    return
+                }
+                showingSettings = false
+                showingCreateProgram = false
+                if let program = workout.program {
+                    path = [.program(program), .workout(workout)]
+                } else { path = [.workout(workout)] }
+            } catch { showingUnavailableWorkout = true }
+        }
+        .alert("Workout Unavailable", isPresented: $showingUnavailableWorkout) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text("This workout day couldn't be opened. Choose a day from Programs.")
+        }
     }
 
     private func activate(_ program: Program) {

@@ -24,6 +24,8 @@ struct WorkoutTemplateDetailView: View {
 
         ScrollView {
             VStack(spacing: 12) {
+                WorkoutActivityControl(workout: workout, isReordering: isReorderMode)
+
                 if visibleExercises.isEmpty {
                     emptyExercisesState
                 } else {
