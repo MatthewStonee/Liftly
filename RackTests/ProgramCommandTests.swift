@@ -431,31 +431,26 @@ struct WorkoutActivityTests {
         try context.save()
     }
 
-    private func coordinator(unit: WeightUnit = .lbs) -> WorkoutActivityCoordinator {
-        WorkoutActivityCoordinator(store: store, client: client, weightUnit: { unit })
+    private func coordinator() -> WorkoutActivityCoordinator {
+        WorkoutActivityCoordinator(store: store, client: client)
     }
 
-    @Test func projectionPreservesOrderingRepModesAndOptionalWeights() throws {
-        let snapshot = WorkoutActivitySnapshot(workout: workout, unit: .lbs)
-        #expect(snapshot.exercises.map(\.name) == (0..<5).map { "Exercise \($0)" })
-        #expect(snapshot.exercises[0].target == "1 × 8 reps · 45.12 lbs")
-        #expect(snapshot.exercises[1].target.contains("8-12 reps"))
-        #expect(snapshot.exercises[4].target == "5 × to failure")
-        #expect(snapshot.exercises[0].spokenTarget.contains("pounds"))
-        #expect(try snapshot.content().exercises.count == 2)
-    }
-
-    @Test func displayConversionDoesNotChangeExactStoredPounds() throws {
+    @Test func projectionPreservesOrderingAndContainsNamesOnly() throws {
         let original = workout.sortedExercises.map(\.targetWeight)
-        let snapshot = WorkoutActivitySnapshot(workout: workout, unit: .kg)
-        #expect(snapshot.exercises[0].target.contains("20.47 kg"))
+        let snapshot = WorkoutActivitySnapshot(workout: workout)
+        #expect(snapshot.exercises.map(\.name) == (0..<5).map { "Exercise \($0)" })
+        let state = try snapshot.content()
+        #expect(state.exercises.count == 5)
+        let encoded = String(decoding: try JSONEncoder().encode(state), as: UTF8.self)
+        #expect(!encoded.contains("spokenTarget"))
+        #expect(!encoded.contains("target"))
         #expect(workout.sortedExercises.map(\.targetWeight) == original)
         #expect(!container.mainContext.hasChanges)
     }
 
     @Test func missingExerciseRelationshipsAreExcludedAndEmptyDayIsRejected() throws {
         for planned in workout.plannedExercisesList { planned.exercise = nil }
-        let snapshot = WorkoutActivitySnapshot(workout: workout, unit: .lbs)
+        let snapshot = WorkoutActivitySnapshot(workout: workout)
         #expect(throws: WorkoutActivityError.emptyWorkout) { try snapshot.content() }
     }
 
@@ -465,7 +460,7 @@ struct WorkoutActivityTests {
             planned.exercise?.name = String(repeating: "\u{0001}💪", count: 2_000)
         }
         let name = workout.name
-        let snapshot = WorkoutActivitySnapshot(workout: workout, unit: .lbs)
+        let snapshot = WorkoutActivitySnapshot(workout: workout)
         let state = try snapshot.content()
         let encoder = JSONEncoder()
         #expect(try encoder.encode(state).count + encoder.encode(WorkoutActivityAttributes(referenceID: UUID())).count <= 3_800)
@@ -474,7 +469,7 @@ struct WorkoutActivityTests {
     }
 
     @Test func pageClampingAnchoringAndRangeLabels() throws {
-        let snapshot = WorkoutActivitySnapshot(workout: workout, unit: .lbs)
+        let snapshot = WorkoutActivitySnapshot(workout: workout)
         #expect(try snapshot.content(startingIndex: -100).startingIndex == 0)
         let last = try snapshot.content(startingIndex: 100)
         #expect(last.startingIndex == 4)
@@ -522,10 +517,10 @@ struct WorkoutActivityTests {
     }
 
     @Test func pagingUsesNewerRenderAndIgnoresOlderQueuedRender() async throws {
-        let initial = try WorkoutActivitySnapshot(workout: workout, unit: .lbs).content()
+        let initial = try WorkoutActivitySnapshot(workout: workout).content()
         client.records = [.init(id: "restored", state: initial)]
         let coordinator = coordinator()
-        let snapshot = WorkoutActivitySnapshot(workout: workout, unit: .lbs)
+        let snapshot = WorkoutActivitySnapshot(workout: workout)
         let newer = WorkoutActivityPageReference(workoutID: workout.id, startingIndex: 2,
                                                  anchorID: snapshot.exercises[2].id, revision: 1)
         try await coordinator.page(activityID: "restored", direction: 1, visibleCount: 2, displayedPage: newer)
@@ -536,15 +531,125 @@ struct WorkoutActivityTests {
         #expect(coordinator.current?.state.revision == 3)
     }
 
-    @Test func oldActivityPayloadDecodesWithoutPageVersion() throws {
-        let state = try WorkoutActivitySnapshot(workout: workout, unit: .lbs).content()
-        let encoded = try JSONEncoder().encode(state)
-        var value = try #require(JSONSerialization.jsonObject(with: encoded) as? [String: Any])
-        value.removeValue(forKey: "revision")
+    @Test func oldActivityPayloadDecodesTargetsAndDefaultsWindowAndVersion() throws {
+        let snapshot = WorkoutActivitySnapshot(workout: workout)
+        let state = try snapshot.content(startingIndex: 2)
+        let legacy: [String: Any] = [
+            "workoutID": workout.id.uuidString, "workoutName": workout.name,
+            "totalExercises": 5, "startingIndex": 2,
+            "exercises": snapshot.exercises.dropFirst(2).prefix(2).map {
+                ["id": $0.id.uuidString, "name": $0.name, "target": "3 × 8 reps", "spokenTarget": "3 sets, 8 reps"]
+            }
+        ]
         let decoded = try JSONDecoder().decode(WorkoutActivityAttributes.ContentState.self,
-                                               from: JSONSerialization.data(withJSONObject: value))
+                                               from: JSONSerialization.data(withJSONObject: legacy))
         #expect(decoded.revision == 0)
-        #expect(decoded.exercises == state.exercises)
+        #expect(decoded.windowStartingIndex == 2)
+        #expect(decoded.exercises == Array(state.exercises.dropFirst(2).prefix(2)))
+        let layout = WorkoutActivityLayout(state: decoded, rowHeight: 18, columns: 2)
+        #expect(layout.showsPaging)
+        #expect(layout.startingIndex == 2)
+        #expect(layout.navigationStep == 2)
+        #expect(layout.exercises.count == 2)
+    }
+
+    private func addExercises(until count: Int) throws {
+        let context = container.mainContext
+        for index in workout.sortedExercises.count..<count {
+            let exercise = Exercise(name: "Exercise \(index)", muscleGroup: .chest, equipment: .barbell)
+            context.insert(exercise)
+            let planned = PlannedExercise(exercise: exercise, orderIndex: index)
+            planned.workoutTemplate = workout
+            context.insert(planned)
+        }
+        try context.save()
+    }
+
+    @Test(arguments: [1, 9, 10]) func wholeDayFitsWithoutPaging(count: Int) throws {
+        if count < 5 {
+            for exercise in workout.sortedExercises.dropFirst(count) { container.mainContext.delete(exercise) }
+            try container.mainContext.save()
+        } else { try addExercises(until: count) }
+        let state = try WorkoutActivitySnapshot(workout: workout).content(startingIndex: count - 1)
+        #expect(state.windowStartingIndex == 0)
+        #expect(state.exercises.count == count)
+        let layout = WorkoutActivityLayout(state: state, rowHeight: 18, columns: 2)
+        #expect(!layout.showsPaging)
+        #expect(layout.startingIndex == 0)
+        #expect(layout.exercises.count == count)
+        #expect(layout.rowCount == (count + 1) / 2)
+        #expect(Double(layout.rowCount) * 18 + Double(max(0, layout.rowCount - 1)) * 4 + 42 <= 160)
+    }
+
+    @Test func elevenExercisesPageBySixAndPreserveFinalPageBoundaries() async throws {
+        try addExercises(until: 11)
+        let coordinator = coordinator()
+        try await coordinator.start(workoutID: workout.id)
+        let id = try #require(coordinator.current?.id)
+        let initial = try #require(coordinator.current?.state)
+        #expect(initial.exercises.count == 10)
+        let first = WorkoutActivityLayout(state: initial, rowHeight: 18, columns: 2)
+        #expect(first.showsPaging && first.capacity == 6)
+        #expect(first.exercises.map(\.name) == (0..<6).map { "Exercise \($0)" })
+        try await coordinator.page(activityID: id, direction: -1, visibleCount: first.navigationStep)
+        #expect(coordinator.current?.state == initial)
+        try await coordinator.page(activityID: id, direction: 1, visibleCount: first.navigationStep)
+        let final = try #require(coordinator.current?.state)
+        #expect(final.startingIndex == 6 && final.windowStartingIndex == 6)
+        let last = WorkoutActivityLayout(state: final, rowHeight: 18, columns: 2)
+        #expect(last.exercises.map(\.name) == (6..<11).map { "Exercise \($0)" })
+        #expect(last.navigationStep == 6)
+        try await coordinator.page(activityID: id, direction: 1, visibleCount: last.navigationStep)
+        #expect(coordinator.current?.state == final)
+        try await coordinator.page(activityID: id, direction: -1, visibleCount: last.navigationStep)
+        #expect(coordinator.current?.state.startingIndex == 0)
+    }
+
+    @Test func textSizeChangesRestoreWholeDayAndKeepEveryNameReachable() async throws {
+        try addExercises(until: 10)
+        let coordinator = coordinator()
+        try await coordinator.start(workoutID: workout.id)
+        let id = try #require(coordinator.current?.id)
+        var reached = Set<UUID>()
+        while let state = coordinator.current?.state {
+            let large = WorkoutActivityLayout(state: state, rowHeight: 30, columns: 1)
+            #expect(large.showsPaging && large.capacity == 2)
+            reached.formUnion(large.exercises.map(\.id))
+            let normal = WorkoutActivityLayout(state: state, rowHeight: 18, columns: 2)
+            #expect(!normal.showsPaging && normal.exercises.count == 10)
+            #expect(normal.startingIndex == 0)
+            if large.startingIndex + large.exercises.count >= state.totalExercises { break }
+            try await coordinator.page(activityID: id, direction: 1, visibleCount: large.navigationStep)
+        }
+        #expect(reached.count == 10)
+        let largest = WorkoutActivityLayout(state: try #require(coordinator.current?.state), rowHeight: 56, columns: 1)
+        #expect(largest.capacity == 1)
+    }
+
+    @Test func overviewPayloadContainsTenBoundedNamesAndNoTargets() throws {
+        try addExercises(until: 10)
+        workout.name = String(repeating: "\u{0001}💪", count: 2_000)
+        for planned in workout.sortedExercises { planned.exercise?.name = String(repeating: "\u{0001}💪", count: 2_000) }
+        let original = workout.sortedExercises.map { $0.exercise?.name }
+        let state = try WorkoutActivitySnapshot(workout: workout).content()
+        #expect(state.exercises.count == 10)
+        let encoder = JSONEncoder()
+        #expect(try encoder.encode(state).count + encoder.encode(WorkoutActivityAttributes(referenceID: UUID())).count <= 3_800)
+        #expect(workout.sortedExercises.map { $0.exercise?.name } == original)
+    }
+
+    @Test func largerOverflowWindowsAndRapidTapsKeepSavedOrder() async throws {
+        try addExercises(until: 22)
+        let coordinator = coordinator()
+        try await coordinator.start(workoutID: workout.id)
+        let id = try #require(coordinator.current?.id)
+        async let first: Void = coordinator.page(activityID: id, direction: 1, visibleCount: 6)
+        async let second: Void = coordinator.page(activityID: id, direction: 1, visibleCount: 6)
+        _ = try await (first, second)
+        let state = try #require(coordinator.current?.state)
+        #expect(state.startingIndex == 12 && state.windowStartingIndex == 12)
+        #expect(state.exercises.map(\.name) == (12..<22).map { "Exercise \($0)" })
+        #expect(state.pageAnchorID == workout.sortedExercises[12].id)
     }
 
     @Test func largerTextPagingReachesEveryExerciseAndStaleActivityIDsDoNothing() async throws {
@@ -566,7 +671,7 @@ struct WorkoutActivityTests {
         try await coordinator.start(workoutID: workout.id)
         let id = try #require(coordinator.current?.id)
         try await coordinator.page(activityID: id, direction: 1, visibleCount: 2)
-        let anchor = try #require(coordinator.current?.state.exercises.first?.id)
+        let anchor = try #require(coordinator.current?.state.pageAnchorID)
         workout.name = "Draft"
         await coordinator.refresh()
         #expect(coordinator.current?.state.workoutName == "Push Day")
@@ -576,17 +681,21 @@ struct WorkoutActivityTests {
         try container.mainContext.save()
         await coordinator.refresh()
         #expect(coordinator.current?.state.workoutName == "Draft")
-        #expect(coordinator.current?.state.exercises.first?.id == anchor)
+        #expect(coordinator.current?.state.pageAnchorID == anchor)
     }
 
-    @Test func unitPreferenceRefreshesActivityWithoutChangingStoredWeights() async throws {
-        var unit: WeightUnit = .lbs
-        let coordinator = WorkoutActivityCoordinator(store: store, client: client, weightUnit: { unit })
+    @Test func targetOnlyEditsDoNotChangeNamesOrRewriteWeights() async throws {
+        let coordinator = coordinator()
         try await coordinator.start(workoutID: workout.id)
-        unit = .kg
+        let before = coordinator.current?.state
+        let planned = try #require(workout.sortedExercises.first)
+        planned.reps = 15
+        planned.targetWeight = 123.456789
+        try container.mainContext.save()
         await coordinator.refresh()
-        #expect(coordinator.current?.state.exercises.first?.target.contains("kg") == true)
-        #expect(workout.sortedExercises.first?.targetWeight == 45.125)
+        #expect(coordinator.current?.state == before)
+        #expect(planned.targetWeight == 123.456789)
+        #expect(!container.mainContext.hasChanges)
     }
 
     @Test func pendingDeletionKeepsSavedReferenceAndUndoRestoresStartEligibility() async throws {
@@ -622,9 +731,9 @@ struct WorkoutActivityTests {
     @Test func failuresRetainLastPageAndSuccessfulRefreshClearsStatus() async throws {
         var failLoad = false
         let repository = WorkoutActivityRepository(store: store)
-        let coordinator = WorkoutActivityCoordinator(store: store, client: client, weightUnit: { .lbs }, loadSnapshot: { id, unit, deletions in
+        let coordinator = WorkoutActivityCoordinator(store: store, client: client, loadSnapshot: { id, deletions in
             if failLoad { throw WorkoutActivityError.storeUnavailable }
-            return try await repository.snapshot(id: id, unit: unit, hiding: deletions)
+            return try await repository.snapshot(id: id, hiding: deletions)
         })
         try await coordinator.start(workoutID: workout.id)
         let rows = coordinator.current?.state.exercises
@@ -658,7 +767,7 @@ struct WorkoutActivityTests {
     }
 
     @Test func restorationDeduplicatesAndDismissalDoesNotRestart() async throws {
-        let state = try WorkoutActivitySnapshot(workout: workout, unit: .lbs).content()
+        let state = try WorkoutActivitySnapshot(workout: workout).content()
         client.records = [.init(id: "first", state: state), .init(id: "second", state: state)]
         let coordinator = coordinator()
         await coordinator.refresh()

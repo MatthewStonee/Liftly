@@ -82,23 +82,19 @@ final class WorkoutActivityCoordinator {
     @ObservationIgnored weak var deletionCoordinator: DeletionCoordinator?
     @ObservationIgnored private let repository: WorkoutActivityRepository
     @ObservationIgnored private let client: any WorkoutActivityClient
-    @ObservationIgnored private let weightUnit: () -> WeightUnit
-    @ObservationIgnored private let loadSnapshot: (UUID, WeightUnit, DeletionCoordinator?) async throws -> WorkoutActivitySnapshot
+    @ObservationIgnored private let loadSnapshot: (UUID, DeletionCoordinator?) async throws -> WorkoutActivitySnapshot
     @ObservationIgnored private var tail: Task<Void, Never>?
     @ObservationIgnored private var observationTasks: [Task<Void, Never>] = []
     @ObservationIgnored private var watchedActivityIDs: Set<String> = []
     @ObservationIgnored private var notificationTokens: [NSObjectProtocol] = []
 
-    init(store: AppDataStore, client: any WorkoutActivityClient, weightUnit: @escaping () -> WeightUnit = {
-        WeightUnit(rawValue: UserDefaults.standard.string(forKey: "weightUnit") ?? "") ?? .lbs
-    }, loadSnapshot: ((UUID, WeightUnit, DeletionCoordinator?) async throws -> WorkoutActivitySnapshot)? = nil) {
+    init(store: AppDataStore, client: any WorkoutActivityClient, loadSnapshot: ((UUID, DeletionCoordinator?) async throws -> WorkoutActivitySnapshot)? = nil) {
         let repository = WorkoutActivityRepository(store: store)
         self.repository = repository
-        self.loadSnapshot = loadSnapshot ?? { id, unit, deletions in
-            try await repository.snapshot(id: id, unit: unit, hiding: deletions)
+        self.loadSnapshot = loadSnapshot ?? { id, deletions in
+            try await repository.snapshot(id: id, hiding: deletions)
         }
         self.client = client
-        self.weightUnit = weightUnit
         areActivitiesEnabled = client.isEnabled
         current = client.records.first
     }
@@ -111,7 +107,7 @@ final class WorkoutActivityCoordinator {
     /// Production-only subscriptions. Notifications from background contexts are
     /// delivered to MainActor before touching observable state or SwiftData.
     private func beginObserving() {
-        for name in [ModelContext.didSave, UserDefaults.didChangeNotification,
+        for name in [ModelContext.didSave,
                      Notification.Name("NSPersistentStoreRemoteChangeNotification")] {
             let token = NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
                 Task { @MainActor in
@@ -151,7 +147,7 @@ final class WorkoutActivityCoordinator {
         try await serialized { [self] in
             synchronize()
             guard client.isEnabled else { throw WorkoutActivityError.disabled }
-            let snapshot = try await loadSnapshot(workoutID, weightUnit(), deletionCoordinator)
+            let snapshot = try await loadSnapshot(workoutID, deletionCoordinator)
             if let current, current.state.workoutID != workoutID {
                 if automatic { return .preservedExisting }
                 guard allowSwitch else { throw WorkoutActivityError.needsSwitch }
@@ -159,7 +155,7 @@ final class WorkoutActivityCoordinator {
             let sameDay = current?.state.workoutID == workoutID
             var state = try snapshot.content(
                 startingIndex: sameDay ? current?.state.startingIndex ?? 0 : 0,
-                anchorID: sameDay ? current?.state.exercises.first?.id : nil
+                anchorID: sameDay ? current?.state.pageAnchorID : nil
             )
             if let current {
                 state.revision = current.state.revision + 1
@@ -186,8 +182,8 @@ final class WorkoutActivityCoordinator {
             synchronize()
             guard let record = current else { return }
             do {
-                let snapshot = try await loadSnapshot(record.state.workoutID, weightUnit(), nil)
-                var state = try snapshot.content(startingIndex: record.state.startingIndex, anchorID: record.state.exercises.first?.id)
+                let snapshot = try await loadSnapshot(record.state.workoutID, nil)
+                var state = try snapshot.content(startingIndex: record.state.startingIndex, anchorID: record.state.pageAnchorID)
                 state.revision = record.state.revision
                 if state != record.state {
                     state.revision += 1
@@ -214,10 +210,13 @@ final class WorkoutActivityCoordinator {
                 // continue from our latest submitted state instead.
                 let reference = displayedPage.flatMap { $0.revision > record.state.revision ? $0 : nil }
                     ?? WorkoutActivityPageReference(workoutID: record.state.workoutID, startingIndex: record.state.startingIndex,
-                                                    anchorID: record.state.exercises.first?.id, revision: record.state.revision)
-                let snapshot = try await loadSnapshot(reference.workoutID, weightUnit(), nil)
+                                                    anchorID: record.state.pageAnchorID, revision: record.state.revision)
+                let snapshot = try await loadSnapshot(reference.workoutID, nil)
                 let base = try snapshot.content(startingIndex: reference.startingIndex, anchorID: reference.anchorID)
-                let step = min(max(visibleCount, 1), 2)
+                let step = min(max(visibleCount, 1), 10)
+                // WidgetKit's remote accessibility tree can report disabled
+                // controls as enabled. Keep boundary intents harmless too.
+                guard direction < 0 ? base.startingIndex > 0 : base.startingIndex + step < base.totalExercises else { return }
                 let index = base.startingIndex + (direction < 0 ? -step : step)
                 var state = try snapshot.content(startingIndex: index)
                 state.revision = reference.revision + 1

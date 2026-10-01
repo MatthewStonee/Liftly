@@ -6,8 +6,6 @@ nonisolated struct WorkoutActivityAttributes: ActivityAttributes {
     struct Exercise: Codable, Hashable, Identifiable, Sendable {
         let id: UUID
         var name: String
-        var target: String
-        var spokenTarget: String
     }
 
     struct ContentState: Codable, Hashable, Sendable {
@@ -15,9 +13,15 @@ nonisolated struct WorkoutActivityAttributes: ActivityAttributes {
         var workoutName: String
         var totalExercises: Int
         var startingIndex: Int
+        var windowStartingIndex: Int = 0
         var exercises: [Exercise]
         var needsRefresh: Bool = false
         var revision: Int = 0
+
+        var pageAnchorID: UUID? {
+            let offset = startingIndex - windowStartingIndex
+            return exercises.indices.contains(offset) ? exercises[offset].id : nil
+        }
 
         var workoutURL: URL {
             URL(string: "liftly://workout/\(workoutID.uuidString)")!
@@ -37,7 +41,7 @@ nonisolated struct WorkoutActivityAttributes: ActivityAttributes {
 
 extension WorkoutActivityAttributes.ContentState {
     private enum CodingKeys: String, CodingKey {
-        case workoutID, workoutName, totalExercises, startingIndex, exercises, needsRefresh, revision
+        case workoutID, workoutName, totalExercises, startingIndex, windowStartingIndex, exercises, needsRefresh, revision
     }
 
     init(from decoder: Decoder) throws {
@@ -46,6 +50,7 @@ extension WorkoutActivityAttributes.ContentState {
         workoutName = try values.decode(String.self, forKey: .workoutName)
         totalExercises = try values.decode(Int.self, forKey: .totalExercises)
         startingIndex = try values.decode(Int.self, forKey: .startingIndex)
+        windowStartingIndex = try values.decodeIfPresent(Int.self, forKey: .windowStartingIndex) ?? startingIndex
         exercises = try values.decode([WorkoutActivityAttributes.Exercise].self, forKey: .exercises)
         needsRefresh = try values.decodeIfPresent(Bool.self, forKey: .needsRefresh) ?? false
         revision = try values.decodeIfPresent(Int.self, forKey: .revision) ?? 0

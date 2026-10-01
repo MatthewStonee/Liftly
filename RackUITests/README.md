@@ -21,7 +21,8 @@ membership in `LiftlyUnitTests`.
 - Delayed deletion failures while an edit sheet contains an unsaved draft.
 - History range selection, loading failure and Retry, pagination, and Undo.
 - Workout Live Activity start, confirmed switching, stop, relaunch, empty days,
-  cold/warm workout links, missing destinations, and Notification Center paging.
+  cold/warm workout links, missing destinations, nine/ten-name overviews, and
+  Notification Center overflow paging with native Dynamic Island screenshots.
 
 ## What the tests assume
 
@@ -43,14 +44,27 @@ element: `program.row.<name>`, `workout.row.<name>`, `exercise.row.<name>`,
 `deletion.undo`, `progress.exercise.<name>`, `progress.viewAllHistory`,
 `history.row/edit/delete.<uuid>`, `history.range.<range>`, `history.list`
 (whose value reads "<n> sets loaded"), `history.loadMore`,
-`history.initialRetry`, `history.inlineRetry`, and `editSet.weight`. Renaming or
+`history.initialRetry`, `history.inlineRetry`, `editSet.weight`, and
+`workout.activity.exercise.<zero-based-position>`. Renaming or
 moving one of these breaks a test, so keep them on the element they name.
+
+## Larger-text Live Activity scenario
+
+`testLiveActivityLargerTextSingleColumn` requires the simulator's system content
+size to be `extra-extra-extra-large` or an accessibility size. It explicitly
+skips on a normal-size simulator. Set the system size with `simctl ui <udid>
+content_size <size>`, then run that focused test through XcodeBuildMCP with
+`-parallel-testing-enabled NO` so it uses the configured simulator rather than a
+clone. Restore the previous content size afterward. This scenario checks native
+single-column paging, all ten reachable names, and 44-point controls; actual
+VoiceOver navigation remains a separate manual check.
 
 ## Verified run
 
-On October 1, 2026, the shared Rack scheme passed all **163 tests**
-(**156 unit tests and 7 UI integration tests**) on iPhone 18 Pro, iOS 27.0,
-with zero failures and zero skipped tests. The full run used the scheme's
+On October 1, 2026, the shared Rack scheme ran **169 tests**
+(**160 unit tests and 9 UI integration tests**) on iPhone 18 Pro, iOS 27.0:
+168 passed with zero failures, and `testLiveActivityLargerTextSingleColumn`
+skipped as designed at the normal content size. The full run used the scheme's
 normal test settings through XcodeBuildMCP.
 
 ## Additional manual coverage

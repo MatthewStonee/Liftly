@@ -24,7 +24,7 @@ struct WorkoutActivityPagingIntent: LiveActivityIntent {
         self.visibleCount = visibleCount
         workoutID = state.workoutID.uuidString
         startingIndex = state.startingIndex
-        anchorID = state.exercises.first?.id.uuidString ?? ""
+        anchorID = state.pageAnchorID?.uuidString ?? ""
         revision = state.revision
     }
 

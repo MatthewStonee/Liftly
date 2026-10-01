@@ -42,7 +42,7 @@ struct WorkoutDayQuery: EntityStringQuery {
 
 struct ShowWorkoutDayOnLockScreenIntent: LiveActivityIntent {
     static var title: LocalizedStringResource = "Show Workout Day on Lock Screen"
-    static var description = IntentDescription("Show a workout day's exercises and targets in a Live Activity. Keeps a different day already showing.")
+    static var description = IntentDescription("Show a workout day's exercise names in a Live Activity. Keeps a different day already showing.")
     static var openAppWhenRun: Bool = false
     static var allowedExecutionTargets: IntentExecutionTargets { .main }
     static var authenticationPolicy: IntentAuthenticationPolicy { .alwaysAllowed }

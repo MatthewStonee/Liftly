@@ -5,16 +5,27 @@ mark exercises complete, create sessions, or change the active program.
 
 ## Use
 
-Open any workout day and choose **Show on Lock Screen**. Use Previous and Next
-to browse its exercises. Tap the activity's content to open that day in Programs.
+Open any workout day and choose **Show on Lock Screen**. The activity shows
+exercise names together whenever they fit. Tap its content to open that day in
+Programs. Previous and Next appear only when the day needs multiple pages.
 Choose **Stop Live Activity** to remove the card immediately. Showing another
 day manually requires confirmation and reuses the existing activity.
 
-The Lock Screen and expanded Dynamic Island show stacked exercise targets.
-The normal page contains two exercises; larger text uses one. The extension
-receives only the visible window, including a second row for text-size changes.
-It renders supplied values without opening SwiftData. Weight formatting uses
-the user's preference; stored pounds are never converted or rewritten.
+The Lock Screen and expanded Dynamic Island show a names-only overview with a
+compact day/count header. At the default text size, up to ten names appear in
+five rows and two columns, in saved order from left to right and top to bottom.
+Odd counts leave the last cell blank. Long names use an ellipsis; accessibility
+labels include the supplied name and position. There are no set, rep, or weight
+targets in the display or payload.
+
+Scaled footnote row heights determine capacity within a 160-point budget.
+Paging reserves 44-point controls and uses fewer names per page. At xxxLarge
+and above, the layout switches to one column. Header and control typography
+are capped at the default size, while exercise names follow Dynamic Type.
+For days of ten or fewer exercises, all names are supplied so text-size changes
+can restore the whole-day overview without fetching. Longer days supply up to
+ten names starting at the selected position. The extension renders these values
+without opening SwiftData; stored workout data and weights are unchanged.
 
 ## Gym automations
 
@@ -41,8 +52,8 @@ succeed harmlessly. Day entities use UUIDs and show the program as a subtitle.
 - `AppDataStore.shared`: common foreground/headless store opener, preserving
   CloudKit/local fallback and the existing recovery behavior.
 
-Updates follow successful saves, locally observed store changes, unit changes,
-and foreground return. Projection uses a fresh context, so unsaved drafts and
+Updates follow successful saves, locally observed store changes, and foreground
+return. The names-only projection does not depend on the weight-unit preference. Projection uses a fresh context, so unsaved drafts and
 pending Undo deletions cannot alter the reference. A committed deletion updates
 the page or ends the activity. Failed refreshes keep the last page and show
 **Refresh needed**. Relaunch recovers existing activities and removes duplicates;
@@ -52,7 +63,9 @@ Operations are serialized across awaits. The ActivityKit client retains the last
 submitted state because `Activity.content` can lag updates. Each rendered page
 also supplies its version and anchor: a restored object can catch up to a newer
 render, while rapid taps from an older render use the latest submitted version.
-Older activity payloads decode with version zero. Display strings are
+Older activity payloads decode with version zero and their original starting
+position as the window start. Their two supplied names remain pageable until
+a refresh replaces the payload. Display strings are
 bounded without changing source data, and the combined encoded attributes and
 content are checked against a 3,800-byte budget, leaving headroom below 4 KB.
 
@@ -63,7 +76,8 @@ service, background timer, or location service were introduced.
 
 Use the shared **Rack** scheme with XcodeBuildMCP on iPhone 18 Pro, iOS 27.
 The existing `ProgramCommandTests.swift` includes `WorkoutActivityTests` for
-projection, units, rep targets, nil weights/relationships, long names/payloads,
+names-only projection, unchanged weights, nil relationships, long names/payloads,
+nine/ten-name overviews, larger-text capacity, legacy payloads, overflow windows,
 page boundaries, rapid taps, refresh failures, saved edits, Undo/deletion,
 start conflicts, store failures, restoration, entities, and links.
 
@@ -71,26 +85,38 @@ The existing UI target includes manual start/switch/stop, empty days, relaunch,
 cold/warm links, missing destinations, native Notification Center paging, and
 compact/expanded Dynamic Island checks.
 
-On September 30, 2026, XcodeBuildMCP built the app and extension on the iPhone
-18 Pro simulator. All 156 unit tests passed, including 21 Live Activity tests.
-The full Rack run passed 160 of 162 tests: the existing drag test and the native
-paging test failed their UI waits. Both passed a focused rerun after the expanded
-Island layout adjustment and settled-animation assertions. The full suite was
-not rerun after that adjustment. Native screenshots were visually checked for
-the first and last Lock Screen pages and compact/expanded Dynamic Island;
-expanded controls were also checked for hittability and 44-point height.
+On October 1, 2026, XcodeBuildMCP built the app and extension on iPhone 18 Pro,
+iOS 27. All 160 unit tests passed. After the boundary guard was added, all 25
+Live Activity unit tests passed again in a focused run. Native UI scenarios
+passed across focused runs for nine/ten-name overviews, eleven-name overflow
+paging, manual start/switch/stop/empty days/relaunch, and cold/warm/missing links.
+The larger-text scenario also passed at system XXXL and the largest accessibility
+size, reaching all ten names with tappable 44-point controls. The simulator's
+original text-size preference was restored afterward.
+
+Native screenshots were visually checked for nine/ten-name Lock Screen and
+expanded Island layouts, overflow first/last pages and Island controls, and
+single-column larger-text pages. Extra Island insets keep names and counts clear
+of the rounded corners. Earlier UI assertions were corrected because SpringBoard
+reports disabled remote controls as enabled; tapping one follows the card's
+content deep link. The boundary scenario now returns from the linked workout
+and confirms that its page did not change. Coordinator tests additionally cover
+boundary intents as no-ops. The unrelated drag/history UI suite was not rerun
+for this presentation change, and no physical-iPhone validation was performed.
 
 The isolated `-LiftlyUITestFixture liveActivity <unique-id>` seeds library
-exercises into Push Day, Other Day, and Empty Day. Its day UUIDs end in 001,
-002, and 003, respectively; it never opens the production store.
+exercises into Push Day, Other Day, Empty Day, Nine Exercises, Ten Exercises,
+and Eleven Exercises. Their day UUIDs end in 001 through 006, respectively;
+the fixture never opens the production store.
 
 Before shipping, complete these physical-iPhone checks:
 
 - Lock Screen and compact, expanded, and minimal Dynamic Island; long names,
-  all rep target types, absent weights, pounds/kilograms, and offline use.
-- Larger text, including accessibility sizes: one-row paging reaches every
-  exercise, targets remain readable, and controls remain tappable.
-- VoiceOver: exercise/target announcements, Previous/Next labels and boundaries,
+  nine/ten-name whole-day overviews, overflow paging, and offline use.
+- Larger text, including accessibility sizes: single-column paging reaches every
+  exercise, names remain readable, and controls remain tappable. Returning to
+  default text restores all nine/ten names without paging.
+- VoiceOver: exercise names and position announcements, Previous/Next labels and boundaries,
   range announcement, and content deep link.
 - Shortcuts action discovery and UUID lookup with duplicate day names; missing
   days, unavailable store, authorization disabled, repeated/conflicting starts,
