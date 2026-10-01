@@ -1,0 +1,65 @@
+[
+  {
+    "x": 302.0,
+    "y": 480.0,
+    "width": 420.0,
+    "height": 68.0,
+    "rx": 34.0,
+    "fill": "#EEF6FF",
+    "source": "Design/AppIcon/Sources/01-bar.svg"
+  },
+  {
+    "x": 146.0,
+    "y": 410.0,
+    "width": 72.0,
+    "height": 216.0,
+    "rx": 36.0,
+    "fill": "#E3F0FF",
+    "source": "Design/AppIcon/Sources/02-rear-left.svg"
+  },
+  {
+    "x": 806.0,
+    "y": 410.0,
+    "width": 72.0,
+    "height": 216.0,
+    "rx": 36.0,
+    "fill": "#E3F0FF",
+    "source": "Design/AppIcon/Sources/02-rear-right.svg"
+  },
+  {
+    "x": 184.0,
+    "y": 364.0,
+    "width": 84.0,
+    "height": 308.0,
+    "rx": 42.0,
+    "fill": "#E8F3FF",
+    "source": "Design/AppIcon/Sources/03-middle-left.svg"
+  },
+  {
+    "x": 756.0,
+    "y": 364.0,
+    "width": 84.0,
+    "height": 308.0,
+    "rx": 42.0,
+    "fill": "#E8F3FF",
+    "source": "Design/AppIcon/Sources/03-middle-right.svg"
+  },
+  {
+    "x": 242.0,
+    "y": 302.0,
+    "width": 104.0,
+    "height": 426.0,
+    "rx": 50.0,
+    "fill": "#F2F8FF",
+    "source": "Design/AppIcon/Sources/04-front-left.svg"
+  },
+  {
+    "x": 678.0,
+    "y": 302.0,
+    "width": 104.0,
+    "height": 426.0,
+    "rx": 50.0,
+    "fill": "#F2F8FF",
+    "source": "Design/AppIcon/Sources/04-front-right.svg"
+  }
+]

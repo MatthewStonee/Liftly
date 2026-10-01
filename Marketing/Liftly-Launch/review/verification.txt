@@ -1,0 +1,6 @@
+Duration: 24.0 seconds
+Dimensions: 1080 x 1920
+Frame rate: 30.0 fps
+Audio tracks: 1
+File size: 31012378 bytes
+Decoded preview frames: 5
