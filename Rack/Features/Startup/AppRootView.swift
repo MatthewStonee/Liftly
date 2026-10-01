@@ -47,7 +47,6 @@ private struct LoadedAppView: View {
     @State private var deletionCoordinator: DeletionCoordinator
     @State private var showingSyncNotice: Bool
     @State private var activityCoordinator = WorkoutActivityCoordinator.shared
-    @AppStorage("weightUnit") private var weightUnit: WeightUnit = .lbs
 
     init(container: ModelContainer, isCloudSyncUnavailable: Bool, workoutLink: UUID?, onWorkoutLinkHandled: @escaping () -> Void) {
         self.container = container
@@ -102,9 +101,6 @@ private struct LoadedAppView: View {
             .onAppear {
                 activityCoordinator.deletionCoordinator = deletionCoordinator
                 activityCoordinator.synchronize()
-            }
-            .onChange(of: weightUnit) { _, _ in
-                Task { await activityCoordinator.refresh() }
             }
             .task { await activityCoordinator.refresh() }
             .onChange(of: isVoiceOverEnabled, initial: true) { _, isEnabled in

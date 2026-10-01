@@ -75,7 +75,7 @@ enum DebugUITestFixture {
         program.isActive = true
         context.insert(program)
 
-        let dayNames = name == "reorder" ? ["Day A", "Day B", "Day C"] : name == "liveActivity" ? ["Push Day", "Other Day", "Empty Day"] : ["Day A"]
+        let dayNames = name == "reorder" ? ["Day A", "Day B", "Day C"] : name == "liveActivity" ? ["Push Day", "Other Day", "Empty Day", "Nine Exercises", "Ten Exercises", "Eleven Exercises"] : ["Day A"]
         var days: [WorkoutTemplate] = []
         for (index, dayName) in dayNames.enumerated() {
             let day = WorkoutTemplate(name: dayName, orderIndex: index)
@@ -92,9 +92,10 @@ enum DebugUITestFixture {
                 context.insert(Exercise(name: entry.name, muscleGroup: entry.muscleGroup, equipment: entry.equipment))
             }
             let exercises = try context.fetch(FetchDescriptor<Exercise>(sortBy: [SortDescriptor(\.name)]))
-            guard exercises.count >= 5 else { throw FixtureError.missingExerciseSeed }
-            for day in days.prefix(2) {
-                for (index, exercise) in exercises.prefix(5).enumerated() {
+            guard exercises.count >= 11 else { throw FixtureError.missingExerciseSeed }
+            for (dayIndex, day) in days.enumerated() {
+                let count = [5, 5, 0, 9, 10, 11][dayIndex]
+                for (index, exercise) in exercises.prefix(count).enumerated() {
                     let planned = PlannedExercise(
                         exercise: exercise, sets: 3, reps: 8,
                         repTargetType: index == 1 ? .range : index == 4 ? .failure : .exact,

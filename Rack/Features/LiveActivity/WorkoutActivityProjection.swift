@@ -23,20 +23,12 @@ struct WorkoutActivitySnapshot {
     let workoutName: String
     let exercises: [WorkoutActivityAttributes.Exercise]
 
-    init(workout: WorkoutTemplate, unit: WeightUnit) {
+    init(workout: WorkoutTemplate) {
         workoutID = workout.id
         workoutName = workout.name
         exercises = workout.sortedExercises.compactMap { planned in
             guard let exercise = planned.exercise else { return nil }
-            let reps = planned.repTargetType == .failure ? "to failure" : planned.formattedRepTarget
-            let weight = planned.targetWeight.map { " · \($0.formattedWeight(unit: unit)) \(unit.symbol)" } ?? ""
-            let spokenWeight = planned.targetWeight.map { ", target weight \($0.formattedWeight(unit: unit)) \(unit.spokenName)" } ?? ""
-            return .init(
-                id: planned.id,
-                name: exercise.name,
-                target: "\(planned.sets) × \(reps)\(weight)",
-                spokenTarget: "\(planned.sets) sets, \(reps)\(spokenWeight)"
-            )
+            return .init(id: planned.id, name: exercise.name)
         }
     }
 
@@ -44,11 +36,10 @@ struct WorkoutActivitySnapshot {
         guard !exercises.isEmpty else { throw WorkoutActivityError.emptyWorkout }
         let anchor = anchorID.flatMap { id in exercises.firstIndex { $0.id == id } }
         let index = min(max(0, anchor ?? startingIndex), exercises.count - 1)
-        let rows = exercises.dropFirst(index).prefix(2).map { exercise in
+        let windowStart = exercises.count <= 10 ? 0 : index
+        let rows = exercises.dropFirst(windowStart).prefix(10).map { exercise in
             var row = exercise
             row.name = Self.bounded(row.name, bytes: 160)
-            row.target = Self.bounded(row.target, bytes: 256)
-            row.spokenTarget = Self.bounded(row.spokenTarget, bytes: 256)
             return row
         }
         var state = WorkoutActivityAttributes.ContentState(
@@ -56,6 +47,7 @@ struct WorkoutActivitySnapshot {
             workoutName: Self.bounded(workoutName, bytes: 160),
             totalExercises: exercises.count,
             startingIndex: index,
+            windowStartingIndex: windowStart,
             exercises: rows
         )
         // Count both static attributes and dynamic content, with headroom for
@@ -70,8 +62,6 @@ struct WorkoutActivitySnapshot {
             state.exercises = state.exercises.map { exercise in
                 var row = exercise
                 row.name = Self.bounded(row.name, bytes: limit)
-                row.target = Self.bounded(row.target, bytes: limit)
-                row.spokenTarget = Self.bounded(row.spokenTarget, bytes: limit)
                 return row
             }
         }
@@ -98,14 +88,14 @@ struct WorkoutDayReference: Equatable {
 struct WorkoutActivityRepository {
     let store: AppDataStore
 
-    func snapshot(id: UUID, unit: WeightUnit, hiding deletions: DeletionCoordinator? = nil) async throws -> WorkoutActivitySnapshot {
+    func snapshot(id: UUID, hiding deletions: DeletionCoordinator? = nil) async throws -> WorkoutActivitySnapshot {
         let container = try await store.readyContainer()
         let context = ModelContext(container)
         var descriptor = FetchDescriptor<WorkoutTemplate>(predicate: #Predicate { $0.id == id })
         descriptor.fetchLimit = 1
         guard let workout = try context.fetch(descriptor).first else { throw WorkoutActivityError.missingWorkout }
         if deletions?.isPending(workout) == true { throw WorkoutActivityError.pendingDeletion }
-        return WorkoutActivitySnapshot(workout: workout, unit: unit)
+        return WorkoutActivitySnapshot(workout: workout)
     }
 
     func days(hiding deletions: DeletionCoordinator? = nil) async throws -> [WorkoutDayReference] {
