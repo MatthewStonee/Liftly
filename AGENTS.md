@@ -31,6 +31,7 @@ Check `Rack/Shared/` and the feature's own folder before building a new componen
 - **Metrics**: set commands only save and publish `LoggedSetChange`; the screen showing metrics (`ExerciseProgressView`) refreshes them itself. A deletion refreshes it even while History covers it, so it never holds a deleted set.
 - **Components**: `TimeRangePicker`, `.appBackground()`, `GlassCard`, `PinnedActionBar` (a sheet's primary action above the keyboard), `WeightValidationMessage`, `ReorderableForEach`, and the Log Set / Edit Set sheets in `LoggedSetSheets.swift`.
 - **Haptics**: prefer `.sensoryFeedback`. Use `UINotificationFeedbackGenerator` only when the view dismisses in the same action (Quick Log), because a `.sensoryFeedback` trigger on a disappearing view may never fire.
+- **Signposts**: mark latency checkpoints with `PerformanceSignposts.event(_:)`. They appear on Instruments' Points of Interest track, and `Benchmarks/` shows how to stream them.
 
 ## Gotchas
 - `Button(_:systemImage:role:)` shorthand hits SwiftUI overload-resolution bugs; use the explicit label form.
@@ -41,6 +42,8 @@ Check `Rack/Shared/` and the feature's own folder before building a new componen
 - Apply `clipShape` before `.glassEffect`. Inside a `GlassEffectContainer`, a `clipShape` applied after the glass left the Progress row's accent bar unclipped.
 - On iOS 27, a `.foregroundStyle` on a y-axis `AxisValueLabel` stops Swift Charts from drawing the label at all; the default is already secondary.
 - A compact `DatePicker`'s button reads to VoiceOver as "Date Picker" whatever label the picker has, so keep its visible caption readable. An untouched picker can also rewrite the bound date's exact time: compare dates at the granularity the picker edits.
+- State set synchronously in `onAppear` is in a screen's first frame. Work started in a `Task` from `onAppear` lands at least one frame later, so show what the first frame needs before starting async work (Progress lists its rows, then loads stats).
+- UI automation that dumps the accessibility tree (XcodeBuildMCP `snapshot_ui`, `capture.py`) makes SwiftUI build that tree on the main thread. The next interactions slow down: a warm Add Exercise open went from 20–86 ms to 0.9–1.4 s. Time interactions with plain taps.
 
 ## Concurrency
 - Swift 5 language mode with `MainActor` as the default isolation and approachable concurrency. Code that runs on a `@ModelActor` (startup maintenance, the PR backfill) and the helpers it calls must be `nonisolated`.

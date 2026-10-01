@@ -27,15 +27,24 @@ enum LoggedSetChange {
     }
 }
 
-struct ExerciseProgressSummary: Sendable {
+/// Built off the main actor by `ProgressViewModel.loadOverviewStats`, so it stays `nonisolated`.
+nonisolated struct ExerciseProgressSummary: Sendable, Equatable {
     var prWeight: Double = 0
     var setCount: Int = 0
 }
 
-struct ProgressOverview {
-    var programExercises: [Exercise] = []
+/// What the overview's background load returns for the listed exercises.
+nonisolated struct ProgressOverviewStats: Sendable {
     var summariesByExerciseID: [UUID: ExerciseProgressSummary] = [:]
     var weeklyVolume: Double = 0
+}
+
+struct ProgressOverview {
+    var programExercises: [Exercise] = []
+    /// An exercise without an entry is still loading its stats.
+    var summariesByExerciseID: [UUID: ExerciseProgressSummary] = [:]
+    /// `nil` while loading. It totals every listed exercise, so it resets when the list changes.
+    var weeklyVolume: Double?
 }
 
 struct ExerciseProgressChartPoint: Identifiable, Equatable {
@@ -60,26 +69,31 @@ struct ExerciseProgressMetrics {
 final class ProgressViewModel {
     /// Loads every set for an exercise, the input for its detail screen's metrics.
     typealias MetricsLoader = @MainActor (UUID, ModelContext) throws -> [LoggedSet]
+    /// Loads the overview's stats for the listed exercises, off the main actor.
+    typealias StatsLoader = @Sendable (_ exerciseIDs: [UUID], ModelContainer, _ now: Date) throws -> ProgressOverviewStats
 
     private static let logger = Logger(subsystem: "com.matthewstone.liftly", category: "Progress")
 
     var timeRange: TimeRange = .threeMonths
     var overview = ProgressOverview()
-    /// Whether an overview load has finished, so Progress doesn't show an empty state
-    /// while its first load is still running.
+    /// Whether `showExercises` has listed the exercises, so Progress doesn't show an empty
+    /// state before it first runs.
     private(set) var hasLoadedOverview = false
     var exerciseMetrics = ExerciseProgressMetrics()
     @ObservationIgnored private var allSetsAscending: [LoggedSet] = []
     @ObservationIgnored private var isShowingExerciseDetail = false
     @ObservationIgnored private let commandRunner: PersistenceCommandRunner
     @ObservationIgnored private let metricsLoader: MetricsLoader
+    @ObservationIgnored private let statsLoader: StatsLoader
 
     init(
         commandRunner: PersistenceCommandRunner = PersistenceCommandRunner(),
-        metricsLoader: @escaping MetricsLoader = { try ProgressViewModel.fetchExerciseSets($0, in: $1) }
+        metricsLoader: @escaping MetricsLoader = { try ProgressViewModel.fetchExerciseSets($0, in: $1) },
+        statsLoader: @escaping StatsLoader = { try ProgressViewModel.loadOverviewStats(for: $0, in: $1, now: $2) }
     ) {
         self.commandRunner = commandRunner
         self.metricsLoader = metricsLoader
+        self.statsLoader = statsLoader
     }
 
     enum TimeRange: String, CaseIterable {
@@ -110,22 +124,18 @@ final class ProgressViewModel {
         return bestSet
     }
 
-    @MainActor
-    func refreshOverview(
-        activeProgram: Program?,
-        modelContainer: ModelContainer,
+    /// Lists the active program's exercises right away, so Progress never waits on a fetch
+    /// to show them. Exercises still listed keep the stats they had until `refreshStats`
+    /// replaces them.
+    /// - Returns: The listed exercises' IDs, for `refreshStats`.
+    @MainActor @discardableResult
+    func showExercises(
+        of activeProgram: Program?,
         excludingWorkoutIDs: Set<UUID> = [],
-        excludingPlannedIDs: Set<UUID> = [],
-        now: Date = Date()
-    ) async {
-        guard let activeProgram else {
-            overview = ProgressOverview()
-            hasLoadedOverview = true
-            return
-        }
-
+        excludingPlannedIDs: Set<UUID> = []
+    ) -> [UUID] {
         var exercisesByID: [UUID: Exercise] = [:]
-        for workout in activeProgram.workoutsList where !excludingWorkoutIDs.contains(workout.id) {
+        for workout in activeProgram?.workoutsList ?? [] where !excludingWorkoutIDs.contains(workout.id) {
             for plannedExercise in workout.plannedExercisesList where !excludingPlannedIDs.contains(plannedExercise.id) {
                 guard let exercise = plannedExercise.exercise else { continue }
                 exercisesByID[exercise.id] = exercise
@@ -139,83 +149,115 @@ final class ProgressViewModel {
             }
             return $0.id.uuidString < $1.id.uuidString
         }
-
-        guard !programExercises.isEmpty else {
-            overview = ProgressOverview()
-            hasLoadedOverview = true
-            return
-        }
-
         let exerciseIDs = programExercises.map(\.id)
-        let activeExerciseIDs = Set(exerciseIDs)
+        let listedIDs = Set(exerciseIDs)
 
+        var next = overview
+        if Set(overview.programExercises.map(\.id)) != listedIDs {
+            next.weeklyVolume = nil
+        }
+        next.programExercises = programExercises
+        next.summariesByExerciseID = overview.summariesByExerciseID.filter { listedIDs.contains($0.key) }
+        overview = next
+        hasLoadedOverview = true
+        return exerciseIDs
+    }
+
+    /// Loads PR weights, set counts, and the week's volume off the main actor, then fills
+    /// them in for the exercises still listed. A failed load keeps earlier stats and shows
+    /// the rest as empty, so no row is left loading.
+    @MainActor
+    func refreshStats(for exerciseIDs: [UUID], modelContainer: ModelContainer, now: Date = Date()) async {
+        guard !exerciseIDs.isEmpty else { return }
+        let signpostState = PerformanceSignposts.signposter.beginInterval("Progress stats")
+        defer { PerformanceSignposts.signposter.endInterval("Progress stats", signpostState) }
+
+        let loader = statsLoader
         do {
-            let result: (summaries: [UUID: ExerciseProgressSummary], weeklyVolume: Double) =
-                try await Task.detached(priority: .userInitiated) {
-                    let context = ModelContext(modelContainer)
-                    var summaries: [UUID: ExerciseProgressSummary] = [:]
-                    summaries.reserveCapacity(exerciseIDs.count)
-
-                    for exerciseID in exerciseIDs {
-                        let exercisePredicate = #Predicate<LoggedSet> { set in
-                            set.exercise?.id == exerciseID
-                        }
-                        let setCount = try context.fetchCount(
-                            FetchDescriptor<LoggedSet>(predicate: exercisePredicate)
-                        )
-
-                        let personalRecordPredicate = #Predicate<LoggedSet> { set in
-                            set.exercise?.id == exerciseID && set.weight > 0
-                        }
-                        var personalRecordDescriptor = FetchDescriptor<LoggedSet>(
-                            predicate: personalRecordPredicate,
-                            sortBy: [
-                                SortDescriptor(\LoggedSet.weight, order: .reverse),
-                                SortDescriptor(\LoggedSet.completedAt)
-                            ]
-                        )
-                        personalRecordDescriptor.fetchLimit = 1
-                        let prWeight = try context.fetch(personalRecordDescriptor).first?.weight ?? 0
-
-                        summaries[exerciseID] = ExerciseProgressSummary(
-                            prWeight: prWeight,
-                            setCount: setCount
-                        )
-                    }
-
-                    let oneWeekAgo = Calendar.current.date(byAdding: .day, value: -7, to: now) ?? now
-                    let weeklyDescriptor = FetchDescriptor<LoggedSet>(
-                        predicate: #Predicate<LoggedSet> { set in
-                            set.completedAt >= oneWeekAgo
-                        }
-                    )
-                    let weeklyVolume = try context.fetch(weeklyDescriptor).reduce(0) { total, set in
-                        guard let exerciseID = set.exercise?.id,
-                              activeExerciseIDs.contains(exerciseID) else {
-                            return total
-                        }
-                        return total + set.volume
-                    }
-
-                    return (summaries, weeklyVolume)
-                }.value
-
+            let stats = try await Task.detached(priority: .userInitiated) {
+                try loader(exerciseIDs, modelContainer, now)
+            }.value
             guard !Task.isCancelled else { return }
 
-            overview = ProgressOverview(
-                programExercises: programExercises,
-                summariesByExerciseID: result.summaries,
-                weeklyVolume: result.weeklyVolume
-            )
-            hasLoadedOverview = true
-        } catch {
-            Self.logger.error("Failed to refresh progress overview: \(String(describing: error), privacy: .public)")
-            // Keep an earlier overview's stats; a first load still lists the exercises.
-            if !hasLoadedOverview {
-                overview = ProgressOverview(programExercises: programExercises)
-                hasLoadedOverview = true
+            let listedIDs = Set(overview.programExercises.map(\.id))
+            var next = overview
+            next.summariesByExerciseID.merge(
+                stats.summariesByExerciseID.filter { listedIDs.contains($0.key) }
+            ) { _, loaded in loaded }
+            // The volume covers exactly the exercises it loaded for.
+            if Set(exerciseIDs) == listedIDs {
+                next.weeklyVolume = stats.weeklyVolume
             }
+            overview = next
+        } catch {
+            Self.logger.error("Failed to refresh progress stats: \(String(describing: error), privacy: .public)")
+            guard !Task.isCancelled else { return }
+
+            var next = overview
+            for exercise in overview.programExercises where next.summariesByExerciseID[exercise.id] == nil {
+                next.summariesByExerciseID[exercise.id] = ExerciseProgressSummary()
+            }
+            if next.weeklyVolume == nil {
+                next.weeklyVolume = 0
+            }
+            overview = next
         }
+    }
+
+    /// Counts each exercise's sets and finds its heaviest, then totals the last 7 days'
+    /// volume for those exercises, in a context of its own. Runs off the main actor, so it
+    /// and everything it calls are `nonisolated`.
+    nonisolated static func loadOverviewStats(
+        for exerciseIDs: [UUID],
+        in modelContainer: ModelContainer,
+        now: Date
+    ) throws -> ProgressOverviewStats {
+        let context = ModelContext(modelContainer)
+        var stats = ProgressOverviewStats()
+        stats.summariesByExerciseID.reserveCapacity(exerciseIDs.count)
+
+        for exerciseID in exerciseIDs {
+            let exercisePredicate = #Predicate<LoggedSet> { set in
+                set.exercise?.id == exerciseID
+            }
+            let setCount = try context.fetchCount(
+                FetchDescriptor<LoggedSet>(predicate: exercisePredicate)
+            )
+
+            let personalRecordPredicate = #Predicate<LoggedSet> { set in
+                set.exercise?.id == exerciseID && set.weight > 0
+            }
+            var personalRecordDescriptor = FetchDescriptor<LoggedSet>(
+                predicate: personalRecordPredicate,
+                sortBy: [
+                    SortDescriptor(\LoggedSet.weight, order: .reverse),
+                    SortDescriptor(\LoggedSet.completedAt)
+                ]
+            )
+            personalRecordDescriptor.fetchLimit = 1
+            let prWeight = try context.fetch(personalRecordDescriptor).first?.weight ?? 0
+
+            stats.summariesByExerciseID[exerciseID] = ExerciseProgressSummary(
+                prWeight: prWeight,
+                setCount: setCount
+            )
+        }
+
+        let activeExerciseIDs = Set(exerciseIDs)
+        let oneWeekAgo = Calendar.current.date(byAdding: .day, value: -7, to: now) ?? now
+        let weeklyDescriptor = FetchDescriptor<LoggedSet>(
+            predicate: #Predicate<LoggedSet> { set in
+                set.completedAt >= oneWeekAgo
+            }
+        )
+        stats.weeklyVolume = try context.fetch(weeklyDescriptor).reduce(0) { total, set in
+            guard let exerciseID = set.exercise?.id,
+                  activeExerciseIDs.contains(exerciseID) else {
+                return total
+            }
+            return total + set.volume
+        }
+        return stats
     }
 
     func refreshExerciseMetrics(with sets: [LoggedSet]) {

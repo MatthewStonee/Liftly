@@ -1143,4 +1143,60 @@ struct LargeStoreBenchmarkTests {
         """
         Attachment.record(report, named: "large-store-query-benchmark.txt")
     }
+
+    /// Times the Progress overview's two phases: listing the active program's exercises,
+    /// which the tab does before its first frame, and loading their stats in the background.
+    @Test func progressOverviewPhases() async throws {
+        let directory = try TestStore.makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let container = try TestStore.makeOnDiskContainer(at: directory.appending(path: "Benchmark.store"))
+        let context = container.mainContext
+        let program = Program(name: "Benchmark")
+        program.isActive = true
+        context.insert(program)
+        var exercises: [Exercise] = []
+        for dayIndex in 0..<4 {
+            let workout = WorkoutTemplate(name: "Day \(dayIndex)", orderIndex: dayIndex)
+            workout.program = program
+            context.insert(workout)
+            for slot in 0..<5 {
+                let exercise = Exercise(name: "Exercise \(dayIndex * 5 + slot)", muscleGroup: .chest, equipment: .barbell)
+                let planned = PlannedExercise(exercise: exercise, orderIndex: slot)
+                planned.workoutTemplate = workout
+                context.insert(exercise)
+                context.insert(planned)
+                exercises.append(exercise)
+            }
+        }
+        for index in 0..<2_000 {
+            let set = LoggedSet(exercise: exercises[index % exercises.count], reps: 5, weight: Double(index % 200 + 1))
+            set.completedAt = Date.now.addingTimeInterval(-Double(index) * 3_600)
+            context.insert(set)
+        }
+        try context.save()
+
+        // A fresh context faults the program's days and exercises from the store, as the
+        // tab's first open does.
+        let programID = program.id
+        let freshProgram = try #require(try ModelContext(container).fetch(FetchDescriptor<Program>(
+            predicate: #Predicate { $0.id == programID }
+        )).first)
+        let model = ProgressViewModel()
+        let clock = ContinuousClock()
+        let listStart = clock.now
+        let listedIDs = model.showExercises(of: freshProgram)
+        let listTime = listStart.duration(to: clock.now)
+
+        let statsStart = clock.now
+        await model.refreshStats(for: listedIDs, modelContainer: container)
+        let statsTime = statsStart.duration(to: clock.now)
+
+        #expect(listedIDs.count == 20)
+        #expect(model.overview.summariesByExerciseID.values.reduce(0) { $0 + $1.setCount } == 2_000)
+        let report = """
+        Overview list phase, before the first frame: \(listTime), \(listedIDs.count) exercises
+        Overview stats phase, in the background: \(statsTime), 2,000 sets
+        """
+        Attachment.record(report, named: "progress-overview-benchmark.txt")
+    }
 }
