@@ -48,7 +48,8 @@ struct ProgressTabView: View {
                 } else if viewModel.hasLoadedOverview {
                     emptyState(for: overviewSelection.program)
                 } else {
-                    // Keeps `onAppear` attached while the first overview loads.
+                    // Only the body pass before `onAppear` lists the exercises lands here;
+                    // it keeps `onAppear` attached.
                     Color.clear
                 }
             }
@@ -64,7 +65,10 @@ struct ProgressTabView: View {
                     ExerciseHistoryView(exercise: exercise)
                 }
             }
-            .onAppear { refreshOverview() }
+            .onAppear {
+                PerformanceSignposts.event("Progress appeared")
+                refreshOverview()
+            }
             .onChange(of: activePrograms.first?.id) { _, _ in
                 refreshOverview()
             }
@@ -90,19 +94,21 @@ struct ProgressTabView: View {
         }
     }
 
+    /// Lists the exercises in this update, so the first frame shows them; only their stats
+    /// wait for the background load. `onAppear` finishes before the first frame renders.
     private func refreshOverview() {
         overviewRefreshTask?.cancel()
         let selection = overviewSelection
+        let exerciseIDs = viewModel.showExercises(
+            of: selection.program,
+            excludingWorkoutIDs: selection.excludedWorkoutIDs,
+            excludingPlannedIDs: selection.excludedPlannedIDs
+        )
         let modelContainer = context.container
         let currentViewModel = viewModel
 
         overviewRefreshTask = Task { @MainActor in
-            await currentViewModel.refreshOverview(
-                activeProgram: selection.program,
-                modelContainer: modelContainer,
-                excludingWorkoutIDs: selection.excludedWorkoutIDs,
-                excludingPlannedIDs: selection.excludedPlannedIDs
-            )
+            await currentViewModel.refreshStats(for: exerciseIDs, modelContainer: modelContainer)
         }
     }
 
@@ -115,12 +121,12 @@ struct ProgressTabView: View {
         overviewRefreshTask = Task { @MainActor in
             try? await Task.sleep(for: .milliseconds(200))
             guard !Task.isCancelled else { return }
-            await currentViewModel.refreshOverview(
-                activeProgram: selection.program,
-                modelContainer: modelContainer,
+            let exerciseIDs = currentViewModel.showExercises(
+                of: selection.program,
                 excludingWorkoutIDs: selection.excludedWorkoutIDs,
                 excludingPlannedIDs: selection.excludedPlannedIDs
             )
+            await currentViewModel.refreshStats(for: exerciseIDs, modelContainer: modelContainer)
         }
     }
 
@@ -146,17 +152,18 @@ struct ProgressTabView: View {
                 .foregroundStyle(.blue)
 
             HStack(alignment: .firstTextBaseline, spacing: 4) {
-                Text(weeklyVolumeText ?? "\u{2014}")
+                Text(isWeeklyVolumeLoading ? "0,000" : weeklyVolumeText ?? "\u{2014}")
                     .font(.largeTitle.weight(.black))
                     .foregroundStyle(.white)
                     .lineLimit(1)
                     .minimumScaleFactor(0.6)
-                if weeklyVolumeText != nil {
+                if isWeeklyVolumeLoading || weeklyVolumeText != nil {
                     Text(weightUnit.symbol)
                         .font(.title3)
                         .foregroundStyle(.secondary)
                 }
             }
+            .redacted(reason: isWeeklyVolumeLoading ? .placeholder : [])
 
             Text("Last 7 days")
                 .font(.caption)
@@ -167,13 +174,20 @@ struct ProgressTabView: View {
         .glassBackground()
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("Weekly volume, last 7 days")
-        .accessibilityValue(weeklyVolumeText.map { "\($0) \(weightUnit.spokenName)" } ?? "None")
+        .accessibilityValue(
+            isWeeklyVolumeLoading
+                ? "Loading"
+                : weeklyVolumeText.map { "\($0) \(weightUnit.spokenName)" } ?? "None"
+        )
     }
 
-    /// Grouped for readability, such as "12,500"; `nil` when nothing was lifted.
+    private var isWeeklyVolumeLoading: Bool {
+        viewModel.overview.weeklyVolume == nil
+    }
+
+    /// Grouped for readability, such as "12,500"; `nil` while loading or when nothing was lifted.
     private var weeklyVolumeText: String? {
-        let volume = viewModel.overview.weeklyVolume
-        guard volume > 0 else { return nil }
+        guard let volume = viewModel.overview.weeklyVolume, volume > 0 else { return nil }
         return weightUnit.display(volume).formatted(.number.precision(.fractionLength(0)))
     }
 
@@ -184,7 +198,7 @@ struct ProgressTabView: View {
                     weeklyVolumeCard
 
                     ForEach(viewModel.overview.programExercises) { exercise in
-                        let summary = viewModel.overview.summariesByExerciseID[exercise.id] ?? ExerciseProgressSummary()
+                        let summary = viewModel.overview.summariesByExerciseID[exercise.id]
                         NavigationLink(value: ProgressRoute.exercise(exercise)) {
                             ExerciseProgressRow(exercise: exercise, summary: summary)
                         }
@@ -199,6 +213,9 @@ struct ProgressTabView: View {
             .padding(.horizontal, 16)
             .padding(.top, 8)
             .padding(.bottom, 32)
+        }
+        .onAppear {
+            PerformanceSignposts.event("Progress rows appeared")
         }
     }
 
@@ -245,7 +262,8 @@ struct ProgressTabView: View {
 
 struct ExerciseProgressRow: View {
     let exercise: Exercise
-    let summary: ExerciseProgressSummary
+    /// `nil` while the stats load, which shows placeholders for the values.
+    let summary: ExerciseProgressSummary?
     @AppStorage("weightUnit") private var weightUnit: WeightUnit = .lbs
 
     var body: some View {
@@ -271,19 +289,20 @@ struct ExerciseProgressRow: View {
                         Text("PR Weight")
                             .font(.caption2)
                             .foregroundStyle(.secondary)
-                        if summary.prWeight > 0 {
+                        if let summary, summary.prWeight <= 0 {
+                            Text("No data")
+                                .font(.subheadline)
+                                .foregroundStyle(.tertiary)
+                        } else {
                             HStack(alignment: .firstTextBaseline, spacing: 2) {
-                                Text(summary.prWeight.formattedWeight(unit: weightUnit))
+                                Text(summary.map { $0.prWeight.formattedWeight(unit: weightUnit) } ?? "000")
                                     .font(.title3.bold())
                                     .foregroundStyle(.white)
                                 Text(weightUnit.symbol)
                                     .font(.caption)
                                     .foregroundStyle(.secondary)
                             }
-                        } else {
-                            Text("No data")
-                                .font(.subheadline)
-                                .foregroundStyle(.tertiary)
+                            .redacted(reason: summary == nil ? .placeholder : [])
                         }
                     }
 
@@ -295,9 +314,10 @@ struct ExerciseProgressRow: View {
                         Text("Sets")
                             .font(.caption2)
                             .foregroundStyle(.secondary)
-                        Text("\(summary.setCount)")
+                        Text(summary.map { "\($0.setCount)" } ?? "00")
                             .font(.title3.bold())
                             .foregroundStyle(.white)
+                            .redacted(reason: summary == nil ? .placeholder : [])
                     }
                 }
             }
@@ -321,12 +341,16 @@ struct ExerciseProgressRow: View {
         .contentShape(Rectangle())
     }
 
-    /// Everything the row shows, such as "Bench Press, Chest, PR weight 225 pounds, 42 sets".
+    /// Everything the row shows, such as "Bench Press, Chest, PR weight 225 pounds, 42 sets",
+    /// or "Bench Press, Chest, loading stats" before they arrive.
     static func accessibilityLabel(
         for exercise: Exercise,
-        summary: ExerciseProgressSummary,
+        summary: ExerciseProgressSummary?,
         unit: WeightUnit
     ) -> String {
+        guard let summary else {
+            return "\(exercise.name), \(exercise.muscleGroup.rawValue), loading stats"
+        }
         let record = summary.prWeight > 0
             ? "PR weight \(summary.prWeight.formattedWeight(unit: unit)) \(unit.spokenName)"
             : "No PR yet"

@@ -405,7 +405,110 @@ struct ProgressViewModelCommandTests {
         #expect(!logged.isPersonalRecord)
     }
 
+    // MARK: Overview
+
+    @Test func overviewListsExercisesBeforeStatsLoad() throws {
+        let program = try Fixtures.savedProgram(in: context, isActive: true, workoutNames: ["Push", "Legs", "Pull"])
+        let (push, legs, pull) = (program.sortedWorkouts[0], program.sortedWorkouts[1], program.sortedWorkouts[2])
+        let bench = try Fixtures.savedExercise(in: context)
+        let squat = try Fixtures.savedExercise(in: context, name: "Squat")
+        let row = try Fixtures.savedExercise(in: context, name: "Barbell Row")
+        let curl = try Fixtures.savedExercise(in: context, name: "Barbell Curl")
+        try plan(bench, in: push)
+        try plan(squat, in: legs)
+        try plan(bench, in: legs)
+        try plan(row, in: pull)
+        let pendingCurl = try plan(curl, in: push)
+
+        let listedIDs = viewModel.showExercises(
+            of: program,
+            excludingWorkoutIDs: [pull.id],
+            excludingPlannedIDs: [pendingCurl.id]
+        )
+
+        // Each exercise once, by name, without a pending day's or pending entry's exercises.
+        #expect(viewModel.overview.programExercises.map(\.name) == ["Bench Press", "Squat"])
+        #expect(listedIDs == [bench.id, squat.id])
+        #expect(viewModel.hasLoadedOverview)
+        #expect(viewModel.overview.summariesByExerciseID.isEmpty)
+        #expect(viewModel.overview.weeklyVolume == nil)
+    }
+
+    @Test func overviewWithoutExercisesIsKnownRightAway() throws {
+        #expect(viewModel.showExercises(of: nil).isEmpty)
+        #expect(viewModel.hasLoadedOverview)
+
+        let program = try Fixtures.savedProgram(in: context, isActive: true, workoutNames: ["Day A"])
+        #expect(viewModel.showExercises(of: program).isEmpty)
+        #expect(viewModel.overview.programExercises.isEmpty)
+    }
+
+    @Test func statsFillInForTheListedExercises() async throws {
+        let program = try Fixtures.savedProgram(in: context, isActive: true, workoutNames: ["Day A"])
+        let day = try #require(program.sortedWorkouts.first)
+        let bench = try Fixtures.savedExercise(in: context)
+        let squat = try Fixtures.savedExercise(in: context, name: "Squat")
+        let curl = try Fixtures.savedExercise(in: context, name: "Barbell Curl")
+        try plan(bench, in: day)
+        try plan(squat, in: day)
+        _ = try savedSet(bench, reps: 5, weight: 100, daysAgo: 2, isRecord: false)
+        _ = try savedSet(bench, reps: 3, weight: 120, daysAgo: 10, isRecord: true)
+        _ = try savedSet(curl, reps: 10, weight: 50, daysAgo: 1, isRecord: true)
+
+        await viewModel.refreshStats(for: viewModel.showExercises(of: program), modelContainer: container)
+
+        #expect(viewModel.overview.summariesByExerciseID[bench.id] == ExerciseProgressSummary(prWeight: 120, setCount: 2))
+        #expect(viewModel.overview.summariesByExerciseID[squat.id] == ExerciseProgressSummary())
+        // Only this week's sets of listed exercises count: 5 × 100.
+        #expect(viewModel.overview.weeklyVolume == 500)
+    }
+
+    @Test func relistingKeepsStatsForExercisesStillListed() async throws {
+        let program = try Fixtures.savedProgram(in: context, isActive: true, workoutNames: ["Day A"])
+        let day = try #require(program.sortedWorkouts.first)
+        let bench = try Fixtures.savedExercise(in: context)
+        let squat = try Fixtures.savedExercise(in: context, name: "Squat")
+        try plan(bench, in: day)
+        let squatEntry = try plan(squat, in: day)
+        _ = try savedSet(bench, reps: 5, weight: 100, daysAgo: 1, isRecord: true)
+        await viewModel.refreshStats(for: viewModel.showExercises(of: program), modelContainer: container)
+
+        // Returning to the tab lists the same exercises, so nothing goes back to loading.
+        viewModel.showExercises(of: program)
+        #expect(viewModel.overview.summariesByExerciseID.count == 2)
+        #expect(viewModel.overview.weeklyVolume == 500)
+
+        // Dropping one keeps the other's stats; the volume waits for the next load.
+        viewModel.showExercises(of: program, excludingPlannedIDs: [squatEntry.id])
+        #expect(viewModel.overview.programExercises.map(\.id) == [bench.id])
+        #expect(Array(viewModel.overview.summariesByExerciseID.keys) == [bench.id])
+        #expect(viewModel.overview.weeklyVolume == nil)
+    }
+
+    @Test func failedStatsLoadLeavesNoRowLoading() async throws {
+        let program = try Fixtures.savedProgram(in: context, isActive: true, workoutNames: ["Day A"])
+        let day = try #require(program.sortedWorkouts.first)
+        let bench = try Fixtures.savedExercise(in: context)
+        try plan(bench, in: day)
+        let screen = ProgressViewModel(statsLoader: { _, _, _ in throw InjectedSaveFailure() })
+
+        await screen.refreshStats(for: screen.showExercises(of: program), modelContainer: container)
+
+        #expect(screen.overview.summariesByExerciseID[bench.id] == ExerciseProgressSummary())
+        #expect(screen.overview.weeklyVolume == 0)
+    }
+
     // MARK: Helpers
+
+    /// Adds `exercise` to a workout day and saves.
+    @discardableResult
+    private func plan(_ exercise: Exercise, in workout: WorkoutTemplate) throws -> PlannedExercise {
+        let planned = PlannedExercise(exercise: exercise)
+        planned.workoutTemplate = workout
+        context.insert(planned)
+        try context.save()
+        return planned
+    }
 
     /// Deletes the way the app does: a batch request whose Undo window runs out.
     private func deleteAfterUndoWindow(_ set: LoggedSet) throws {

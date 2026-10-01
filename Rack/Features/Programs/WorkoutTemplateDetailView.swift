@@ -47,6 +47,7 @@ struct WorkoutTemplateDetailView: View {
                 }
 
                 PrimaryButton("Add Exercise", icon: "plus.circle") {
+                    PerformanceSignposts.event("Add Exercise tapped")
                     showingExercisePicker = true
                 }
                 .disabled(isReorderMode)

@@ -36,6 +36,9 @@ struct ExercisePickerView: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .appBackground()
+            .onAppear {
+                PerformanceSignposts.event("Exercise picker appeared")
+            }
             .navigationTitle("Choose Exercise")
             .titleDisplayMode(.inline)
             .searchable(text: $searchText, prompt: "Search exercises")
