@@ -15,15 +15,19 @@ struct ReorderableForEach<T: Identifiable, Content: View>: View where T.ID: Send
         VStack(spacing: 12) {
             // Identify views by `T.ID`: the container reports moves with those IDs.
             ForEach(items) { item in
-                content(item)
-                    // Lifts the row with the corners of `glassBackground()`.
-                    .contentShape(.dragPreview, .rect(cornerRadius: 20))
-                    .accessibilityActions {
-                        if isEnabled {
-                            Button("Move Up") { moveByOne(item.id, offset: -1) }
-                            Button("Move Down") { moveByOne(item.id, offset: 1) }
-                        }
+                // Keep glass rendering inside the row that the system lifts.
+                GlassEffectContainer(spacing: 12) {
+                    content(item)
+                }
+                .compositingGroup()
+                // Lifts the row with the corners of `glassBackground()`.
+                .contentShape(.dragPreview, .rect(cornerRadius: 20))
+                .accessibilityActions {
+                    if isEnabled {
+                        Button("Move Up") { moveByOne(item.id, offset: -1) }
+                        Button("Move Down") { moveByOne(item.id, offset: 1) }
                     }
+                }
             }
             .reorderable()
         }

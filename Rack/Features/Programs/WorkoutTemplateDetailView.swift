@@ -28,17 +28,15 @@ struct WorkoutTemplateDetailView: View {
                 if visibleExercises.isEmpty {
                     emptyExercisesState
                 } else {
-                    GlassEffectContainer(spacing: 12) {
-                        ReorderableForEach(
-                            items: visibleExercises,
-                            isEnabled: canReorder,
-                            onCommitOrder: { orderedIDs in
-                                commitExerciseOrder(orderedIDs)
-                            }
-                        ) { planned in
-                            PlannedExerciseRow(planned: planned) {
-                                deletePlannedExercise(planned)
-                            }
+                    ReorderableForEach(
+                        items: visibleExercises,
+                        isEnabled: canReorder,
+                        onCommitOrder: { orderedIDs in
+                            commitExerciseOrder(orderedIDs)
+                        }
+                    ) { planned in
+                        PlannedExerciseRow(planned: planned) {
+                            deletePlannedExercise(planned)
                         }
                     }
                 }

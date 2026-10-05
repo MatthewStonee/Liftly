@@ -35,19 +35,17 @@ struct ProgramDetailView: View {
                             ProgramOverviewView(workouts: visibleWorkouts)
                         }
                     } else {
-                        GlassEffectContainer(spacing: 12) {
-                            ReorderableForEach(
-                                items: visibleWorkouts,
-                                isEnabled: canReorder,
-                                onCommitOrder: { orderedIDs in
-                                    commitWorkoutOrder(orderedIDs)
-                                }
-                            ) { workout in
-                                WorkoutTemplateRow(workout: workout)
-                                    .accessibilityElement(children: .contain)
-                                    .accessibilityLabel(workout.name)
-                                    .accessibilityIdentifier("workout.row.\(workout.name)")
+                        ReorderableForEach(
+                            items: visibleWorkouts,
+                            isEnabled: canReorder,
+                            onCommitOrder: { orderedIDs in
+                                commitWorkoutOrder(orderedIDs)
                             }
+                        ) { workout in
+                            WorkoutTemplateRow(workout: workout)
+                                .accessibilityElement(children: .contain)
+                                .accessibilityLabel(workout.name)
+                                .accessibilityIdentifier("workout.row.\(workout.name)")
                         }
 
                         addWorkoutButton
